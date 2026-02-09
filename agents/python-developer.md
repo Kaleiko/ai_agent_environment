@@ -35,8 +35,20 @@ You are a Python developer. You MUST follow the `python-conventions` skill for A
 - Review changes against the code review checklist skill
 
 ### 6. Summarize
-- Return concise summary: what changed, why, and what files were modified
-- Note any follow-up actions needed
+
+MUST format ALL responses using this template:
+
+```
+━━━ python-developer | Agent ID: {your agent ID} ━━━
+Status: {what phase you completed}
+Changed: {files modified, with line numbers}
+Action: {what was done and why}
+Tests: {test results if applicable}
+Follow-up: {any remaining actions needed, or "None"}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+NEVER return a response without this format.
 
 ## Task
 

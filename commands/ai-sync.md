@@ -38,6 +38,8 @@ export AI_AGENT_ENV_PATH="/path/to/ai_agent_environment"
 
 Check that `.claude/skills/` and `.claude/agents/` exist. If they do NOT exist, stop and tell the user to run `/ai-initialize` first.
 
+Note: `.claude/hooks/` may not exist in older projects. If hooks exist in the repo but not in the project, inform the user they can run `/ai-initialize` to add hooks support.
+
 ### 2. Sync skills
 
 For each `.md` file in `.claude/skills/`, check if a matching file exists in the repo. ONLY copy if it exists in the repo. NEVER touch files that are project-specific:
@@ -64,9 +66,24 @@ for f in .claude/agents/*.md; do
 done
 ```
 
-### 4. Confirm
+### 4. Sync hooks
+
+If `.claude/hooks/` exists, sync hook files the same way:
+
+```bash
+if [ -d ".claude/hooks" ]; then
+  for f in .claude/hooks/*.py; do
+    name=$(basename "$f")
+    if [ -f "$AI_AGENT_ENV_PATH/hooks/$name" ]; then
+      cp "$AI_AGENT_ENV_PATH/hooks/$name" ".claude/hooks/$name"
+    fi
+  done
+fi
+```
+
+### 5. Confirm
 
 Report in three categories:
-- **Updated from repo**: Files that were re-copied with latest versions
+- **Updated from repo**: Files that were re-copied with latest versions (skills, agents, hooks)
 - **Project-specific (untouched)**: Files that exist in the project but NOT in the repo — confirm these were left alone
 - **Not synced**: Any files in the repo that are NOT in the project (inform user they can run `/ai-initialize` to add new files)

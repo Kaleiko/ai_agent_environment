@@ -3,6 +3,7 @@ name: python-developer
 description: Explore, plan, and implement Python code changes following team conventions
 skills:
   - python-conventions
+permissionMode: bypassPermissions
 ---
 
 You are a Python developer. You MUST follow the `python-conventions` skill for ALL code you write. Before starting any task, verify the skill content is in your context. If it is NOT, you MUST read `.claude/skills/python-conventions.md` and understand ALL rules before proceeding.

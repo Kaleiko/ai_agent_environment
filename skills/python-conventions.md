@@ -384,7 +384,6 @@ When creating a new Python project, MUST use this structure. When working in an 
 
 - MUST use `pyproject.toml` for new projects
 - `requirements.txt` is acceptable for existing projects that already use it
-- MUST use a virtual environment (`venv`) for every project. NEVER install packages globally
 - MUST pin dependency versions in production projects
 
 ## Rules
@@ -395,7 +394,41 @@ When creating a new Python project, MUST use this structure. When working in an 
 
 ---
 
-# 8. Code Review Checklist
+# 8. Virtual Environments
+
+## When Required
+
+- MUST use a virtual environment when a project requires ANY packages or modules that are NOT part of the Python standard library
+- Exception: If the project uses Docker for its runtime environment, a virtual environment is NOT required (Docker provides isolation)
+
+## Setup
+
+- MUST use Python's built-in `venv` module to create virtual environments
+- MUST name the virtual environment directory `.venv` (dot-prefixed, in the project root)
+- MUST add `.venv/` to `.gitignore`. NEVER commit the virtual environment to version control
+
+```bash
+# MUST create venv in the project root
+python -m venv .venv
+
+# Activate (macOS/Linux)
+source .venv/bin/activate
+
+# Activate (Windows)
+.venv\Scripts\activate
+```
+
+## Rules
+
+- MUST activate the virtual environment before installing packages or running the project
+- MUST install ALL project dependencies inside the virtual environment. NEVER install packages globally with `pip install` outside a venv
+- MUST verify the venv is active before running `pip install` — check for `(.venv)` in the shell prompt or run `which python` to confirm it points to `.venv/`
+- MUST recreate the venv if switching Python versions
+- NEVER use `sudo pip install` — this is always wrong
+
+---
+
+# 9. Code Review Checklist
 
 **MUST verify ALL items before finalizing any code changes.**
 

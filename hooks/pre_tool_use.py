@@ -40,6 +40,11 @@ DESTRUCTIVE_COMMANDS = {"rm", "mv", "chmod", "chown", "shred", "unlink"}
 # Tools with file_path that should be CWD-checked
 FILE_PATH_TOOLS = {"Read", "Write", "Edit"}
 
+# Directories outside CWD that are allowed for file path tools
+ALLOWED_EXTERNAL_DIRS = [
+    os.path.join(os.path.expanduser("~"), ".claude"),
+]
+
 
 def get_cwd(payload: dict) -> str:
     """Get the working directory from the hook payload."""
@@ -142,8 +147,21 @@ def check_bash_command(command: str, cwd: str) -> str | None:
             for p in paths:
                 resolved = resolve_path(p, cwd)
                 if not is_within_cwd(resolved, cwd):
-                    return f"Blocked: {cmd_base} targets outside project directory ({p})"
+                    return (
+                        f"Blocked: {cmd_base} targets outside project directory ({p})"
+                    )
     return None
+
+
+def is_in_allowed_external_dir(resolved_path: str) -> bool:
+    """Check if a resolved path is within an allowed external directory."""
+    for allowed_dir in ALLOWED_EXTERNAL_DIRS:
+        norm_allowed = os.path.normpath(allowed_dir)
+        if resolved_path == norm_allowed or resolved_path.startswith(
+            norm_allowed + os.sep
+        ):
+            return True
+    return False
 
 
 def check_file_path_tool(tool_input: dict, cwd: str) -> str | None:
@@ -152,7 +170,7 @@ def check_file_path_tool(tool_input: dict, cwd: str) -> str | None:
     if not file_path:
         return None
     resolved = resolve_path(file_path, cwd)
-    if not is_within_cwd(resolved, cwd):
+    if not is_within_cwd(resolved, cwd) and not is_in_allowed_external_dir(resolved):
         return f"Blocked: file path targets outside project directory ({file_path})"
     return None
 

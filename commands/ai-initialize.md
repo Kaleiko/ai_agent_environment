@@ -29,7 +29,7 @@ export AI_AGENT_ENV_PATH="/path/to/ai_agent_environment"
 ### 1. Create project structure
 
 ```bash
-mkdir -p .claude/skills .claude/agents .claude/prompts .claude/ai_docs .claude/specs .claude/hooks .claude/logs/security
+mkdir -p .claude/skills .claude/agents .claude/prompts .claude/ai_docs .claude/specs .claude/hooks .claude/logs/security .claude/logs/audit
 ```
 
 ### 2. Copy all files
@@ -73,6 +73,27 @@ If `.claude/settings.json` does not exist, create it with this content:
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash|Read|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/permission_request.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_tool_use_failure.py\""
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [
@@ -87,7 +108,7 @@ If `.claude/settings.json` does not exist, create it with this content:
 }
 ```
 
-If `.claude/settings.json` already exists, read it and add the `hooks` key if not already present. If `hooks` already exists, ensure both `PreToolUse` and `SubagentStop` entries are present.
+If `.claude/settings.json` already exists, read it and add the `hooks` key if not already present. If `hooks` already exists, ensure `PreToolUse`, `PermissionRequest`, `PostToolUseFailure`, and `SubagentStop` entries are present.
 
 ### 4. Generate project CLAUDE.md
 

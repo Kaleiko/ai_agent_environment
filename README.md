@@ -20,7 +20,7 @@ A centralized repository for reusable Claude Code skills, agents, and prompts. P
 - **agents/** — Custom subagents (e.g., `python-developer`) with workflows and skill references
 - **commands/** — Global commands (e.g., `ai-initialize`) for project setup
 - **prompts/** — Reusable prompt templates
-- **hooks/** — Security and logging hooks (`pre_tool_use`, `subagent_stop`)
+- **hooks/** — Security, permissions, and logging hooks (`pre_tool_use`, `permission_request`, `post_tool_use_failure`, `subagent_stop`)
 - **install.sh** — One-time setup script for any machine
 
 ## Architecture
@@ -47,6 +47,8 @@ A centralized repository for reusable Claude Code skills, agents, and prompts. P
 │   └── python-developer.md                                   │
 │ hooks/                                                      │
 │   ├── pre_tool_use.py — Security gate                       │
+│   ├── permission_request.py — Auto-allow read-only ops      │
+│   ├── post_tool_use_failure.py — Tool failure logging        │
 │   └── subagent_stop.py — Agent transcript logging           │
 │ logs/                                                       │
 │   ├── security/          — Security decisions               │
@@ -166,6 +168,8 @@ Hooks provide deterministic security enforcement and per-agent logging. They are
 | Hook | Event | Purpose |
 |------|-------|---------|
 | `pre_tool_use.py` | `PreToolUse` | Security gate: blocks destructive commands, protects `.env` files, audits all tool calls |
+| `permission_request.py` | `PermissionRequest` | Auto-allows read-only operations (`Read`, `Glob`, `Grep`, safe Bash), reducing permission prompts |
+| `post_tool_use_failure.py` | `PostToolUseFailure` | Logs tool failures for pattern detection and debugging |
 | `subagent_stop.py` | `SubagentStop` | Captures subagent transcripts into per-agent log directories |
 
 ### Security hook (`pre_tool_use`)
@@ -176,7 +180,23 @@ The security hook enforces three layers of protection:
 - **Tier 2 — CWD enforcement**: Destructive commands (`rm`, `mv`, `chmod`, `chown`) targeting paths outside the project directory are blocked. File-path tools (`Read`, `Write`, `Edit`, `MultiEdit`) are also checked.
 - **`.env` protection**: Access to `.env` files is blocked across all tools (Bash, Read, Write, Edit, MultiEdit). Safe templates (`.env.sample`, `.env.example`, `.env.template`, `.env.test`) are allowed.
 
-Security decisions are logged to `.claude/logs/security/pre_tool_use.log`. Every tool call payload is captured in `.claude/logs/audit/pre_tool_use.json` for full audit trail.
+Security decisions are logged to `.claude/logs/security/blocked.jsonl`. Every tool call payload is captured in `.claude/logs/audit/pre_tool_use.jsonl` for full audit trail.
+
+### Permission hook (`permission_request`)
+
+The permission hook auto-allows read-only operations to reduce permission prompt fatigue:
+
+- **Always allowed**: `Read`, `Glob`, `Grep` tools
+- **Safe Bash commands**: `ls`, `pwd`, `cat` (no redirection), `head`, `tail`, `wc`, `which`, `file`, `stat`
+- **Safe git**: `git status/log/diff/show/branch/tag`, `git remote -v`
+- **Safe package managers**: `npm list/ls/outdated/view`, `pip list/show/freeze`
+- **Version checks**: `python --version`, `node --version`
+
+All other tools and commands pass through to the normal user permission prompt. Every request is logged to `.claude/logs/audit/permission_request.jsonl`.
+
+### Failure tracking hook (`post_tool_use_failure`)
+
+When any tool call fails, the error details are logged to `.claude/logs/audit/tool_failures.jsonl` — tool name, input, error, and session ID. Useful for spotting recurring failures (e.g., repeated bad Edit matches, failing Bash commands).
 
 ### Agent logging hook (`subagent_stop`)
 
@@ -189,7 +209,9 @@ When a subagent finishes, its transcript is copied to `.claude/logs/agent-{id}/`
 ├── security/
 │   └── blocked.jsonl               # Blocked tool calls with full detail
 ├── audit/
-│   └── pre_tool_use.jsonl           # Full tool call payloads (one JSON per line)
+│   ├── pre_tool_use.jsonl           # Full tool call payloads (one JSON per line)
+│   ├── permission_request.jsonl     # Permission decisions (allow/pass_through)
+│   └── tool_failures.jsonl          # Tool failure details (error, input, tool name)
 ├── agent-abc123/
 │   ├── 2026-02-09_14-30-25.jsonl   # Transcript copy
 │   └── summary.log                 # Session summaries

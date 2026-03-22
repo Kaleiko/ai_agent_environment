@@ -2,7 +2,8 @@
 """Pre-tool-use security hook.
 
 Blocks destructive commands targeting outside the project CWD.
-Logs all security decisions to .claude/logs/security/pre_tool_use.log
+Logs blocked tool calls to .claude/logs/security/blocked.jsonl
+Logs all tool call payloads to .claude/logs/audit/pre_tool_use.jsonl
 """
 
 import json
@@ -38,7 +39,7 @@ TIER1_COMPILED = [re.compile(p) for p in TIER1_PATTERNS]
 DESTRUCTIVE_COMMANDS = {"rm", "mv", "chmod", "chown", "shred", "unlink"}
 
 # Tools with file_path that should be CWD-checked
-FILE_PATH_TOOLS = {"Read", "Write", "Edit"}
+FILE_PATH_TOOLS = {"Read", "Write", "Edit", "MultiEdit"}
 
 # Directories outside CWD that are allowed for file path tools
 ALLOWED_EXTERNAL_DIRS = [
@@ -46,20 +47,56 @@ ALLOWED_EXTERNAL_DIRS = [
 ]
 
 
+MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def enforce_max_size_text(file_path: Path) -> None:
+    """Trim a text log file to MAX_LOG_BYTES by removing oldest lines."""
+    file_size = file_path.stat().st_size
+    if file_size <= MAX_LOG_BYTES:
+        return
+    # Seek to the excess portion, then find the next newline to keep whole lines
+    excess = file_size - MAX_LOG_BYTES
+    with open(file_path, "rb") as f:
+        f.seek(excess)
+        f.readline()  # skip partial line
+        tail = f.read()
+    with open(file_path, "wb") as f:
+        f.write(tail)
+
+
 def get_cwd(payload: dict) -> str:
     """Get the working directory from the hook payload."""
     return payload.get("cwd", os.getcwd())
 
 
-def log_decision(cwd: str, decision: str, tool_name: str, detail: str) -> None:
-    """Append a log entry to .claude/logs/security/pre_tool_use.log."""
-    log_dir = Path(cwd) / ".claude" / "logs" / "security"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "pre_tool_use.log"
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    entry = f"[{timestamp}] {decision} {tool_name}: {detail}\n"
-    with open(log_file, "a") as f:
-        f.write(entry)
+def log_audit(cwd: str, payload: dict) -> None:
+    """Append the full tool call payload to .claude/logs/audit/pre_tool_use.jsonl."""
+    audit_dir = Path(cwd) / ".claude" / "logs" / "audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    audit_file = audit_dir / "pre_tool_use.jsonl"
+
+    payload["_timestamp"] = datetime.now(timezone.utc).isoformat()
+    with open(audit_file, "a") as f:
+        f.write(json.dumps(payload) + "\n")
+    enforce_max_size_text(audit_file)
+
+
+def log_blocked(cwd: str, tool_name: str, tool_input: dict, reason: str) -> None:
+    """Append blocked tool call details to .claude/logs/security/blocked.jsonl."""
+    security_dir = Path(cwd) / ".claude" / "logs" / "security"
+    security_dir.mkdir(parents=True, exist_ok=True)
+    blocked_file = security_dir / "blocked.jsonl"
+
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "reason": reason,
+    }
+    with open(blocked_file, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    enforce_max_size_text(blocked_file)
 
 
 def deny(reason: str) -> dict:
@@ -164,11 +201,33 @@ def is_in_allowed_external_dir(resolved_path: str) -> bool:
     return False
 
 
+def is_env_file(path_str: str) -> bool:
+    """Check if a path targets a .env file (but allow .env.sample, .env.example)."""
+    basename = os.path.basename(path_str)
+    safe_suffixes = (".sample", ".example", ".template", ".test")
+    return basename == ".env" or (
+        basename.startswith(".env.") and not any(basename.endswith(s) for s in safe_suffixes)
+    )
+
+
+def check_env_in_command(command: str) -> str | None:
+    """Check if a Bash command accesses .env files."""
+    # Match .env or .env.* but not .env.sample/.env.example/.env.template/.env.test
+    if re.search(r"\.env\b(?!\.(?:sample|example|template|test)\b)", command):
+        return "Blocked: access to .env files containing secrets is prohibited (use .env.sample instead)"
+    return None
+
+
 def check_file_path_tool(tool_input: dict, cwd: str) -> str | None:
-    """Check Read/Write/Edit tool file_path against CWD."""
+    """Check Read/Write/Edit tool file_path against CWD and .env protection."""
     file_path = tool_input.get("file_path", "")
     if not file_path:
         return None
+
+    # Block .env file access
+    if is_env_file(file_path):
+        return "Blocked: access to .env files containing secrets is prohibited (use .env.sample instead)"
+
     resolved = resolve_path(file_path, cwd)
     if not is_within_cwd(resolved, cwd) and not is_in_allowed_external_dir(resolved):
         return f"Blocked: file path targets outside project directory ({file_path})"
@@ -185,25 +244,24 @@ def main() -> None:
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {})
     cwd = get_cwd(payload)
+
+    # Audit log: capture every tool call payload
+    log_audit(cwd, payload)
+
     reason = None
 
     if tool_name == "Bash":
         command = tool_input.get("command", "")
-        reason = check_bash_command(command, cwd)
-        detail = command.strip()[:120]
+        reason = check_env_in_command(command) or check_bash_command(command, cwd)
     elif tool_name in FILE_PATH_TOOLS:
         reason = check_file_path_tool(tool_input, cwd)
-        detail = tool_input.get("file_path", "")[:120]
     else:
-        # Tool not in our watch list — allow
         return
 
     if reason:
-        log_decision(cwd, "BLOCKED", tool_name, reason)
+        log_blocked(cwd, tool_name, tool_input, reason)
         result = deny(reason)
         print(json.dumps(result))
-    else:
-        log_decision(cwd, "ALLOWED", tool_name, detail)
 
 
 if __name__ == "__main__":

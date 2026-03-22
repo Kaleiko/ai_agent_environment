@@ -50,6 +50,7 @@ A centralized repository for reusable Claude Code skills, agents, and prompts. P
 │   └── subagent_stop.py — Agent transcript logging           │
 │ logs/                                                       │
 │   ├── security/          — Security decisions               │
+│   ├── audit/             — Full tool call audit trail        │
 │   └── agent-{id}/        — Per-agent transcripts            │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -164,17 +165,18 @@ Hooks provide deterministic security enforcement and per-agent logging. They are
 
 | Hook | Event | Purpose |
 |------|-------|---------|
-| `pre_tool_use.py` | `PreToolUse` | Blocks destructive commands targeting outside the project CWD |
+| `pre_tool_use.py` | `PreToolUse` | Security gate: blocks destructive commands, protects `.env` files, audits all tool calls |
 | `subagent_stop.py` | `SubagentStop` | Captures subagent transcripts into per-agent log directories |
 
 ### Security hook (`pre_tool_use`)
 
-The security hook enforces two tiers of protection:
+The security hook enforces three layers of protection:
 
 - **Tier 1 — Hard block**: Catastrophic commands are always blocked regardless of CWD (`rm -rf /`, `rm -rf ~`, `mkfs`, `dd if=`, `git push --force` to main/master)
-- **Tier 2 — CWD enforcement**: Destructive commands (`rm`, `mv`, `chmod`, `chown`) targeting paths outside the project directory are blocked. File-path tools (`Read`, `Write`, `Edit`) are also checked.
+- **Tier 2 — CWD enforcement**: Destructive commands (`rm`, `mv`, `chmod`, `chown`) targeting paths outside the project directory are blocked. File-path tools (`Read`, `Write`, `Edit`, `MultiEdit`) are also checked.
+- **`.env` protection**: Access to `.env` files is blocked across all tools (Bash, Read, Write, Edit, MultiEdit). Safe templates (`.env.sample`, `.env.example`, `.env.template`, `.env.test`) are allowed.
 
-All decisions are logged to `.claude/logs/security/pre_tool_use.log`.
+Security decisions are logged to `.claude/logs/security/pre_tool_use.log`. Every tool call payload is captured in `.claude/logs/audit/pre_tool_use.json` for full audit trail.
 
 ### Agent logging hook (`subagent_stop`)
 
@@ -185,7 +187,9 @@ When a subagent finishes, its transcript is copied to `.claude/logs/agent-{id}/`
 ```
 .claude/logs/
 ├── security/
-│   └── pre_tool_use.log            # All security decisions
+│   └── blocked.jsonl               # Blocked tool calls with full detail
+├── audit/
+│   └── pre_tool_use.jsonl           # Full tool call payloads (one JSON per line)
 ├── agent-abc123/
 │   ├── 2026-02-09_14-30-25.jsonl   # Transcript copy
 │   └── summary.log                 # Session summaries
@@ -193,3 +197,5 @@ When a subagent finishes, its transcript is copied to `.claude/logs/agent-{id}/`
     ├── 2026-02-09_14-35-10.jsonl
     └── summary.log
 ```
+
+All log files are automatically trimmed to a maximum of **10 MB** by removing the oldest entries.

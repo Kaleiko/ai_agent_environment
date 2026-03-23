@@ -1,14 +1,13 @@
 # AI Agent Environment
 
-This repository contains reusable skills, commands, prompts, and agent configurations.
+This repository contains reusable skills, agents, hooks, and prompts for Claude Code — all installed globally via `install.sh`.
 
 ## Architecture
 
-- **Global** (`~/.claude/skills/`) — `ai-interaction` (communication guidelines), `ai-initialize` (project setup), `ai-sync` (update project from repo)
-- **Per-project** (`.claude/`) — Skills, agents, and prompts are copied to each project via `/ai-initialize`, updated via `/ai-sync`
+- **Global** (`~/.claude/`) — Hooks (in settings.json), delegation rules (in rules/), agents (in agents/), ai-interaction skill (in skills/)
+- **Repo** (`$AI_AGENT_ENV_PATH/`) — Source of truth for all hooks, skills, agents, and prompts
+- **Per-project** (`.claude/`) — Only logs (auto-created by hooks) and optional skill overrides
 
 ## MANDATORY: Agent Delegation
 
-If this project has a `.claude/prompts/delegation.md` file, you MUST read it and follow ALL rules within it. It defines when and how to delegate tasks to subagents.
-
-If no `.claude/prompts/delegation.md` exists and the user asks for Python work, suggest running `/ai-initialize` to set up the project.
+Delegation rules are loaded globally from `~/.claude/rules/delegation.md`. They define when and how to delegate tasks to subagents. You MUST follow them.

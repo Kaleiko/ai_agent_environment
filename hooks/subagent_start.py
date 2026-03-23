@@ -2,7 +2,7 @@
 """Subagent-start hook.
 
 Injects skill file contents as additionalContext when mapped subagents spawn.
-Guarantees skills are loaded regardless of model behavior with the skills: field.
+Two-tier skill lookup: project .claude/skills/ first, then $AI_AGENT_ENV_PATH/skills/.
 Logs to .claude/logs/audit/subagent_start.jsonl.
 """
 
@@ -123,19 +123,28 @@ def main() -> None:
     if not skill_files:
         return
 
-    # Read each skill file
-    skills_dir = Path(cwd) / ".claude" / "skills"
+    # Read each skill file — two-tier lookup:
+    # 1. Project override: {cwd}/.claude/skills/{filename}
+    # 2. Repo default:     $AI_AGENT_ENV_PATH/skills/{filename}
+    project_skills_dir = Path(cwd) / ".claude" / "skills"
+    repo_skills_dir = None
+    env_path = os.environ.get("AI_AGENT_ENV_PATH")
+    if env_path:
+        repo_skills_dir = Path(env_path) / "skills"
+
     contents = []
     loaded = []
 
     for filename in skill_files:
-        skill_path = skills_dir / filename
+        skill_path = project_skills_dir / filename
+        if not skill_path.is_file() and repo_skills_dir:
+            skill_path = repo_skills_dir / filename
         if not skill_path.is_file():
             continue
         text = skill_path.read_text().strip()
         if text:
             contents.append(text)
-            loaded.append(filename)
+            loaded.append(f"{filename} ({skill_path.parent})")
 
     if not contents:
         log_audit(cwd, agent_id, agent_type, [])

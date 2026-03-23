@@ -4,44 +4,36 @@
 # =============================================================================
 #
 # PURPOSE:
-#   One-time setup script that installs the global components needed to use
-#   the AI Agent Environment on any machine. Run this after cloning the repo.
+#   Sets up global Claude Code configuration so every project gets hooks,
+#   agents, and delegation rules automatically. No per-project setup needed.
 #
 # WHAT IT DOES:
-#   1. Installs global skills to ~/.claude/skills/ (subdirectory format):
-#      - ai-interaction: Communication guidelines loaded in every Claude session
-#      - ai-initialize:  The /ai-initialize command used to set up projects
-#      - ai-sync:        The /ai-sync command to update project skills from repo
-#
-#   2. Sets the AI_AGENT_ENV_PATH environment variable in your shell profile
-#      so the /ai-initialize command knows where to find this repo's skills
-#      and agents when copying them to a project.
+#   1. Installs ai-interaction skill to ~/.claude/skills/
+#   2. Copies delegation rules to ~/.claude/rules/
+#   3. Copies agent definitions to ~/.claude/agents/
+#   4. Merges hook definitions into ~/.claude/settings.json
+#   5. Sets AI_AGENT_ENV_PATH environment variable
+#   6. Cleans up retired skills (ai-initialize, ai-sync)
 #
 # USAGE:
 #   ./install.sh
 #   source ~/.zshrc   # (or ~/.bashrc) to pick up the new env var
-#
-# AFTER INSTALL:
-#   Open any project in Claude Code and run /ai-initialize to copy
-#   skills and agents into that project's .claude/ directory.
+#   # Then restart Claude Code
 #
 # SAFE TO RE-RUN:
-#   - Skills are overwritten with latest versions from the repo
+#   - Files are overwritten with latest versions from the repo
 #   - Environment variable is only added once (skipped if already present)
+#   - Existing settings.json keys (statusLine, etc.) are preserved
 # =============================================================================
 
-set -e  # Exit immediately if any command fails
+set -e
 
-# Resolve the absolute path to this repo, regardless of where the script is
-# called from. This becomes the value of AI_AGENT_ENV_PATH.
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Claude Code looks for global skills in ~/.claude/skills/
-# Each skill must be in a subdirectory with a SKILL.md file inside it.
 SKILLS_DIR="$HOME/.claude/skills"
+RULES_DIR="$HOME/.claude/rules"
+AGENTS_DIR="$HOME/.claude/agents"
 
-# Detect the user's shell profile for setting environment variables.
-# Prefers zsh (macOS default), falls back to bash.
 SHELL_RC="$HOME/.zshrc"
 [ -f "$SHELL_RC" ] || SHELL_RC="$HOME/.bashrc"
 
@@ -49,46 +41,48 @@ echo "Installing from: $REPO_DIR"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 1: Install global skills
+# Step 1: Install global skill (ai-interaction only)
 # ---------------------------------------------------------------------------
-# These are the only skills that live globally. All other skills (Python
-# conventions, etc.) are copied per-project by the /ai-initialize command.
 
-# ai-interaction: Basic communication guidelines and code review process.
-# Has globs: ["**/*"] so it loads in every Claude Code session regardless
-# of what files are open.
 mkdir -p "$SKILLS_DIR/ai-interaction"
 cp "$REPO_DIR/skills/ai-interaction.md" "$SKILLS_DIR/ai-interaction/SKILL.md"
 echo "  Installed skill: ai-interaction"
 
-# ai-initialize: The /ai-initialize command that users invoke to set up a
-# project with skills and agents. Marked as user-invocable so it appears
-# as a slash command in Claude Code.
-mkdir -p "$SKILLS_DIR/ai-initialize"
-cp "$REPO_DIR/commands/ai-initialize.md" "$SKILLS_DIR/ai-initialize/SKILL.md"
-echo "  Installed skill: ai-initialize"
+# ---------------------------------------------------------------------------
+# Step 2: Copy delegation rules to ~/.claude/rules/
+# ---------------------------------------------------------------------------
 
-# ai-sync: The /ai-sync command that re-copies the latest skills and agents
-# from this repo into a project's .claude/ directory. Use this after updating
-# skills in the repo to push changes to active projects.
-mkdir -p "$SKILLS_DIR/ai-sync"
-cp "$REPO_DIR/commands/ai-sync.md" "$SKILLS_DIR/ai-sync/SKILL.md"
-echo "  Installed skill: ai-sync"
+mkdir -p "$RULES_DIR"
+cp "$REPO_DIR/prompts/delegation.md" "$RULES_DIR/delegation.md"
+echo "  Installed rule: delegation.md"
 
 # ---------------------------------------------------------------------------
-# Step 2: Set up AI_AGENT_ENV_PATH environment variable
+# Step 3: Copy agent definitions to ~/.claude/agents/
 # ---------------------------------------------------------------------------
-# The /ai-initialize command uses $AI_AGENT_ENV_PATH to locate this repo
-# when copying skills and agents to a project. Without it, the command
-# won't know where to find the source files.
+
+mkdir -p "$AGENTS_DIR"
+for agent_file in "$REPO_DIR"/agents/*.md; do
+  [ -f "$agent_file" ] || continue
+  cp "$agent_file" "$AGENTS_DIR/$(basename "$agent_file")"
+  echo "  Installed agent: $(basename "$agent_file")"
+done
+
+# ---------------------------------------------------------------------------
+# Step 4: Merge hooks into ~/.claude/settings.json
+# ---------------------------------------------------------------------------
+
+# Export so the merge script can reference it if needed
+export AI_AGENT_ENV_PATH="$REPO_DIR"
+python3 "$REPO_DIR/scripts/merge_global_settings.py"
+
+# ---------------------------------------------------------------------------
+# Step 5: Set up AI_AGENT_ENV_PATH environment variable
+# ---------------------------------------------------------------------------
 
 if grep -q "AI_AGENT_ENV_PATH" "$SHELL_RC" 2>/dev/null; then
-  # Already set — don't duplicate. User may need to update manually if
-  # the repo moved to a different location.
   echo ""
   echo "  AI_AGENT_ENV_PATH already in $SHELL_RC (skipping)"
 else
-  # Append the export to the shell profile so it persists across sessions.
   echo "" >> "$SHELL_RC"
   echo "# AI Agent Environment — path to skills/agents repo" >> "$SHELL_RC"
   echo "export AI_AGENT_ENV_PATH=\"$REPO_DIR\"" >> "$SHELL_RC"
@@ -97,10 +91,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Step 6: Clean up retired skills
+# ---------------------------------------------------------------------------
+
+for retired in ai-initialize ai-sync; do
+  if [ -d "$SKILLS_DIR/$retired" ]; then
+    rm -rf "$SKILLS_DIR/$retired"
+    echo "  Removed retired skill: $retired"
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
 echo ""
-echo "Done. Restart your shell or run:"
+echo "Done. Restart your shell and Claude Code:"
 echo "  source $SHELL_RC"
 echo ""
-echo "Then use /ai-initialize in any project to set up skills and agents."
+echo "No per-project setup needed — hooks, agents, and delegation are global."

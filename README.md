@@ -20,7 +20,7 @@ A centralized repository for reusable Claude Code skills, agents, and prompts. P
 - **agents/** — Custom subagents (e.g., `python-developer`) with workflows and skill references
 - **commands/** — Global commands (e.g., `ai-initialize`) for project setup
 - **prompts/** — Reusable prompt templates
-- **hooks/** — Security, permissions, logging, and session hooks (`pre_tool_use`, `permission_request`, `post_tool_use_failure`, `subagent_stop`, `session_stop`, `session_start`)
+- **hooks/** — Security, permissions, logging, and session hooks (`pre_tool_use`, `permission_request`, `post_tool_use_failure`, `subagent_stop`, `session_stop`, `session_start`, `subagent_start`)
 - **install.sh** — One-time setup script for any machine
 
 ## Architecture
@@ -51,12 +51,13 @@ A centralized repository for reusable Claude Code skills, agents, and prompts. P
 │   ├── post_tool_use_failure.py — Tool failure logging        │
 │   ├── subagent_stop.py — Agent transcript logging           │
 │   ├── session_stop.py — Session chat log capture            │
+│   ├── subagent_start.py — Skill injection for subagents     │
 │   └── session_start.py — Previous session context injection │
 │ logs/                                                       │
 │   ├── last_session.md    — Condensed previous session chat  │
 │   ├── security/          — Security decisions               │
 │   ├── audit/             — Full tool call audit trail        │
-│   └── agent-{id}/        — Per-agent transcripts            │
+│   └── agents/            — Per-agent transcripts & summaries│
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -175,6 +176,7 @@ Hooks provide deterministic security enforcement and per-agent logging. They are
 | `post_tool_use_failure.py` | `PostToolUseFailure` | Logs tool failures for pattern detection and debugging |
 | `subagent_stop.py` | `SubagentStop` | Captures subagent transcripts into per-agent log directories |
 | `session_stop.py` | `Stop` | Parses session transcript into condensed chat log for cross-session context |
+| `subagent_start.py` | `SubagentStart` | Injects skill files as context when mapped subagents spawn |
 | `session_start.py` | `SessionStart` | Injects previous session chat log as context on fresh startup |
 
 ### Security hook (`pre_tool_use`)
@@ -205,11 +207,20 @@ When any tool call fails, the error details are logged to `.claude/logs/audit/to
 
 ### Agent logging hook (`subagent_stop`)
 
-When a subagent finishes, its transcript is copied to `.claude/logs/agent-{id}/` with a timestamped filename. A summary entry is appended to `summary.log` in the same directory.
+When a subagent finishes, its transcript is appended to `.claude/logs/agents/{agent_type}-{N}/transcript.jsonl` as a continuous log. Directories are numbered sequentially per agent type (e.g., `python-developer-1`, `python-developer-2`). A structured summary entry is appended to `summary.jsonl` in the same directory. The `subagent_start` hook registers the agent_id → directory mapping when the agent spawns, ensuring consistent naming between start and stop.
 
 ### Session chat log hook (`session_stop`)
 
 When a session ends, the stop hook reads the full session transcript and extracts only the user messages and assistant text responses (skipping tool calls, thinking, progress events). The result is written to `.claude/logs/last_session.md` as a condensed markdown chat log, capped at 4000 characters (trimmed from the top to keep recent messages). Stop events are logged to `.claude/logs/audit/session_stop.jsonl`.
+
+### Skill injection hook (`subagent_start`)
+
+When a mapped subagent spawns, the start hook reads the corresponding skill files from `.claude/skills/` and injects their contents as `additionalContext`. This guarantees skills are loaded regardless of whether the model honors the `skills:` field in agent frontmatter. The mapping is defined in the hook:
+
+- `python-developer` → `python-conventions.md`
+- `next-developer` → `next-conventions.md`
+
+Unmapped agents (Bash, Explore, Plan, etc.) pass through silently. If a skill file is missing, the hook logs and continues without breaking the agent spawn. Events are logged to `.claude/logs/audit/subagent_start.jsonl`.
 
 ### Session context hook (`session_start`)
 
@@ -227,13 +238,16 @@ On fresh startup (`source: "startup"`), the start hook reads `.claude/logs/last_
 │   ├── permission_request.jsonl     # Permission decisions (allow/pass_through)
 │   ├── tool_failures.jsonl          # Tool failure details (error, input, tool name)
 │   ├── session_stop.jsonl           # Session stop events
-│   └── session_start.jsonl          # Session start events
-├── agent-abc123/
-│   ├── 2026-02-09_14-30-25.jsonl   # Transcript copy
-│   └── summary.log                 # Session summaries
-└── agent-def456/
-    ├── 2026-02-09_14-35-10.jsonl
-    └── summary.log
+│   ├── session_start.jsonl          # Session start events
+│   └── subagent_start.jsonl         # Subagent skill injection events
+├── agents/
+│   ├── .agent_map.json              # agent_id → directory name mapping
+│   ├── python-developer-1/
+│   │   ├── transcript.jsonl         # Continuous transcript log
+│   │   └── summary.jsonl            # Structured stop events
+│   └── python-developer-2/
+│       ├── transcript.jsonl
+│       └── summary.jsonl
 ```
 
 All log files are automatically trimmed to a maximum of **10 MB** by removing the oldest entries.

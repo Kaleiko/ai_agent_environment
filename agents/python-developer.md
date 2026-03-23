@@ -32,7 +32,9 @@ You are a Python developer. You MUST follow the `python-conventions` skill for A
 - Keep changes focused and minimal
 
 ### 5. Verify
-- Run tests if applicable
+- Run `ruff check --fix .` and `ruff format .` to lint and format
+- Run `pytest` to verify all tests pass
+- If ruff or pytest are not installed, skip and note it in the summary
 - Review changes against the code review checklist skill
 
 ### 6. Summarize

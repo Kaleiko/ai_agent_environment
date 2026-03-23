@@ -77,12 +77,22 @@ def log_audit(cwd: str, payload: dict) -> None:
     audit_file = audit_dir / "pre_tool_use.jsonl"
 
     payload["_timestamp"] = datetime.now(timezone.utc).isoformat()
+    # Ensure agent identity fields are present for subagent attribution
+    payload.setdefault("agent_type", None)
+    payload.setdefault("agent_id", None)
     with open(audit_file, "a") as f:
         f.write(json.dumps(payload) + "\n")
     enforce_max_size_text(audit_file)
 
 
-def log_blocked(cwd: str, tool_name: str, tool_input: dict, reason: str) -> None:
+def log_blocked(
+    cwd: str,
+    tool_name: str,
+    tool_input: dict,
+    reason: str,
+    agent_type: str | None = None,
+    agent_id: str | None = None,
+) -> None:
     """Append blocked tool call details to .claude/logs/security/blocked.jsonl."""
     security_dir = Path(cwd) / ".claude" / "logs" / "security"
     security_dir.mkdir(parents=True, exist_ok=True)
@@ -93,6 +103,8 @@ def log_blocked(cwd: str, tool_name: str, tool_input: dict, reason: str) -> None
         "tool_name": tool_name,
         "tool_input": tool_input,
         "reason": reason,
+        "agent_type": agent_type,
+        "agent_id": agent_id,
     }
     with open(blocked_file, "a") as f:
         f.write(json.dumps(entry) + "\n")
@@ -244,6 +256,8 @@ def main() -> None:
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {})
     cwd = get_cwd(payload)
+    agent_type = payload.get("agent_type")
+    agent_id = payload.get("agent_id")
 
     # Audit log: capture every tool call payload
     log_audit(cwd, payload)
@@ -259,7 +273,7 @@ def main() -> None:
         return
 
     if reason:
-        log_blocked(cwd, tool_name, tool_input, reason)
+        log_blocked(cwd, tool_name, tool_input, reason, agent_type, agent_id)
         result = deny(reason)
         print(json.dumps(result))
 

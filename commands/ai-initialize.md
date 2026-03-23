@@ -123,12 +123,22 @@ If `.claude/settings.json` does not exist, create it with this content:
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent_start.py\""
+          }
+        ]
+      }
     ]
   }
 }
 ```
 
-If `.claude/settings.json` already exists, read it and add the `hooks` key if not already present. If `hooks` already exists, ensure `PreToolUse`, `PermissionRequest`, `PostToolUseFailure`, `SubagentStop`, `Stop`, and `SessionStart` entries are present.
+If `.claude/settings.json` already exists, read it and add the `hooks` key if not already present. If `hooks` already exists, ensure `PreToolUse`, `PermissionRequest`, `PostToolUseFailure`, `SubagentStop`, `Stop`, `SessionStart`, and `SubagentStart` entries are present.
 
 ### 4. Generate project CLAUDE.md
 

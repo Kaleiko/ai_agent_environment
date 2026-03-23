@@ -46,6 +46,8 @@ def main() -> None:
         "tool_input": payload.get("tool_input", {}),
         "error": payload.get("error", {}),
         "session_id": payload.get("session_id", ""),
+        "agent_type": payload.get("agent_type"),
+        "agent_id": payload.get("agent_id"),
     }
 
     with open(log_file, "a") as f:

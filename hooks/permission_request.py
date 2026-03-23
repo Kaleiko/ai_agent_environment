@@ -60,6 +60,8 @@ def log_request(cwd: str, payload: dict, decision: str) -> None:
         "_timestamp": datetime.now(timezone.utc).isoformat(),
         "tool_name": payload.get("tool_name", ""),
         "decision": decision,
+        "agent_type": payload.get("agent_type"),
+        "agent_id": payload.get("agent_id"),
     }
     # Include command for Bash calls
     if payload.get("tool_name") == "Bash":

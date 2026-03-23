@@ -20,7 +20,7 @@ A centralized repository for reusable Claude Code skills, agents, and prompts. P
 - **agents/** — Custom subagents (e.g., `python-developer`) with workflows and skill references
 - **commands/** — Global commands (e.g., `ai-initialize`) for project setup
 - **prompts/** — Reusable prompt templates
-- **hooks/** — Security, permissions, and logging hooks (`pre_tool_use`, `permission_request`, `post_tool_use_failure`, `subagent_stop`)
+- **hooks/** — Security, permissions, logging, and session hooks (`pre_tool_use`, `permission_request`, `post_tool_use_failure`, `subagent_stop`, `session_stop`, `session_start`)
 - **install.sh** — One-time setup script for any machine
 
 ## Architecture
@@ -49,8 +49,11 @@ A centralized repository for reusable Claude Code skills, agents, and prompts. P
 │   ├── pre_tool_use.py — Security gate                       │
 │   ├── permission_request.py — Auto-allow read-only ops      │
 │   ├── post_tool_use_failure.py — Tool failure logging        │
-│   └── subagent_stop.py — Agent transcript logging           │
+│   ├── subagent_stop.py — Agent transcript logging           │
+│   ├── session_stop.py — Session chat log capture            │
+│   └── session_start.py — Previous session context injection │
 │ logs/                                                       │
+│   ├── last_session.md    — Condensed previous session chat  │
 │   ├── security/          — Security decisions               │
 │   ├── audit/             — Full tool call audit trail        │
 │   └── agent-{id}/        — Per-agent transcripts            │
@@ -171,6 +174,8 @@ Hooks provide deterministic security enforcement and per-agent logging. They are
 | `permission_request.py` | `PermissionRequest` | Auto-allows read-only operations (`Read`, `Glob`, `Grep`, safe Bash), reducing permission prompts |
 | `post_tool_use_failure.py` | `PostToolUseFailure` | Logs tool failures for pattern detection and debugging |
 | `subagent_stop.py` | `SubagentStop` | Captures subagent transcripts into per-agent log directories |
+| `session_stop.py` | `Stop` | Parses session transcript into condensed chat log for cross-session context |
+| `session_start.py` | `SessionStart` | Injects previous session chat log as context on fresh startup |
 
 ### Security hook (`pre_tool_use`)
 
@@ -202,16 +207,27 @@ When any tool call fails, the error details are logged to `.claude/logs/audit/to
 
 When a subagent finishes, its transcript is copied to `.claude/logs/agent-{id}/` with a timestamped filename. A summary entry is appended to `summary.log` in the same directory.
 
+### Session chat log hook (`session_stop`)
+
+When a session ends, the stop hook reads the full session transcript and extracts only the user messages and assistant text responses (skipping tool calls, thinking, progress events). The result is written to `.claude/logs/last_session.md` as a condensed markdown chat log, capped at 4000 characters (trimmed from the top to keep recent messages). Stop events are logged to `.claude/logs/audit/session_stop.jsonl`.
+
+### Session context hook (`session_start`)
+
+On fresh startup (`source: "startup"`), the start hook reads `.claude/logs/last_session.md` and injects it as `additionalContext` so Claude has awareness of the previous session's conversation. This is skipped on resume, clear, and compact events (which already have context). Start events are logged to `.claude/logs/audit/session_start.jsonl`.
+
 ### Log structure
 
 ```
 .claude/logs/
+├── last_session.md                  # Condensed chat from previous session
 ├── security/
 │   └── blocked.jsonl               # Blocked tool calls with full detail
 ├── audit/
 │   ├── pre_tool_use.jsonl           # Full tool call payloads (one JSON per line)
 │   ├── permission_request.jsonl     # Permission decisions (allow/pass_through)
-│   └── tool_failures.jsonl          # Tool failure details (error, input, tool name)
+│   ├── tool_failures.jsonl          # Tool failure details (error, input, tool name)
+│   ├── session_stop.jsonl           # Session stop events
+│   └── session_start.jsonl          # Session start events
 ├── agent-abc123/
 │   ├── 2026-02-09_14-30-25.jsonl   # Transcript copy
 │   └── summary.log                 # Session summaries

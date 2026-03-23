@@ -136,6 +136,16 @@ You MUST:
 - MUST NEVER spawn a new subagent when an active one can be resumed
 - MUST pass the subagent's formatted response to the user exactly as returned — do NOT reformat or summarize it
 
+## Post-Subagent Verification
+
+After EVERY subagent run, you MUST verify the result before returning it to the user:
+
+1. **Check the subagent's response** — Did it complete the full task, or did it stop partway? Look for phrases like "I couldn't", "I was unable", partial implementations, or TODO placeholders.
+2. **Check for failures** — Read the last 5 lines of `.claude/logs/audit/tool_failures.jsonl` to see if the subagent hit errors during its run.
+3. **If issues are found** — Resume the subagent to address them before reporting back. Do NOT pass incomplete or failed results to the user without first attempting a fix.
+
+This applies to ALL subagent types (Python, Next.js, or any future agents).
+
 ## Non-Delegated Tasks
 
 For tasks that do NOT involve Python code or Next.js/TypeScript code (documentation, configuration, shell scripts, etc.), handle them directly. Delegation is ONLY required for Python and Next.js work as described above.

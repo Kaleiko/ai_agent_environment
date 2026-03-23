@@ -103,12 +103,32 @@ If `.claude/settings.json` does not exist, create it with this content:
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_stop.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py\""
+          }
+        ]
+      }
     ]
   }
 }
 ```
 
-If `.claude/settings.json` already exists, read it and add the `hooks` key if not already present. If `hooks` already exists, ensure `PreToolUse`, `PermissionRequest`, `PostToolUseFailure`, and `SubagentStop` entries are present.
+If `.claude/settings.json` already exists, read it and add the `hooks` key if not already present. If `hooks` already exists, ensure `PreToolUse`, `PermissionRequest`, `PostToolUseFailure`, `SubagentStop`, `Stop`, and `SessionStart` entries are present.
 
 ### 4. Generate project CLAUDE.md
 
@@ -120,6 +140,12 @@ If `.claude/CLAUDE.md` does not exist, create it with this content:
 # Project AI Configuration
 
 Initialized with `/ai-initialize`.
+
+## Tool Failure Recovery
+
+When a tool fails twice in a row, read `.claude/logs/audit/tool_failures.jsonl` (last 10 lines) before retrying. Look for patterns — repeated Edit mismatches, failing commands, or permission issues. Adjust your approach based on what failed previously.
+
+When a subagent returns a bad or incomplete result, check `tool_failures.jsonl` for failures from that session before retrying or spawning another subagent.
 
 @.claude/prompts/delegation.md
 ```

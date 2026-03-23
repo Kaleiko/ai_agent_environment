@@ -89,7 +89,7 @@ def log_blocked(cwd: str, tool_name: str, tool_input: dict, reason: str) -> None
     blocked_file = security_dir / "blocked.jsonl"
 
     entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "_timestamp": datetime.now(timezone.utc).isoformat(),
         "tool_name": tool_name,
         "tool_input": tool_input,
         "reason": reason,

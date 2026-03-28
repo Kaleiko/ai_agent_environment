@@ -1,6 +1,6 @@
 ---
 name: python-conventions
-description: "Python conventions: code style, error handling, logging, testing, project structure, code review"
+description: "Python conventions: code style, error handling, logging, testing, project structure, code review, pipeline architecture"
 globs: ["**/*.py"]
 ---
 
@@ -458,3 +458,137 @@ source .venv/bin/activate
 - MUST have test coverage for new functionality
 - MUST have zero linting errors or warnings
 - MUST NEVER submit code that fails any of the above checks
+
+---
+
+# 10. Pipeline & Workflow Architecture
+
+## Pipeline Isolation
+
+- Multi-step workflows MUST be structured as independent, composable stages
+- Each stage MUST be a standalone function that takes explicit input and returns explicit output
+- NEVER nest meaningful business logic inside other functions where it cannot be called or tested independently
+- Each stage MUST be importable and callable on its own — including from tests, scripts, and notebooks
+
+## Function Nesting
+
+- NEVER define functions inside other functions when the inner function contains meaningful business logic
+- Every testable operation MUST be a top-level or class-level function
+- Helper closures are acceptable ONLY for trivial logic (e.g., sort keys, simple callbacks) that has no need for independent testing
+
+```python
+# NEVER do this — business logic trapped inside another function
+def run_pipeline(raw_data: list[dict]) -> list[dict]:
+    def transform(item: dict) -> dict:
+        # 20 lines of meaningful transformation logic
+        ...
+    return [transform(item) for item in raw_data]
+
+# MUST do this — each stage is a top-level function
+def transform_item(item: dict) -> dict:
+    """Transform a single raw item into the processed format.
+
+    Args:
+        item: Raw item dictionary from the data source
+
+    Returns:
+        Transformed item dictionary
+    """
+    # Transformation logic here
+    ...
+
+def run_pipeline(raw_data: list[dict]) -> list[dict]:
+    """Execute the full processing pipeline on raw data.
+
+    Args:
+        raw_data: List of raw item dictionaries
+
+    Returns:
+        List of transformed item dictionaries
+    """
+    return [transform_item(item) for item in raw_data]
+```
+
+## Explicit Data Boundaries
+
+- Each pipeline stage MUST accept typed input and return typed output
+- Stages MUST NOT depend on previous stages having just executed — they MUST work with any valid input, including test fixtures or saved intermediate results
+- NEVER pass shared mutable state between stages — return new data from each stage
+- MUST use dataclasses, TypedDicts, or Pydantic models for complex stage inputs/outputs
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class ExtractionResult:
+    """Output of the extraction stage."""
+    records: list[dict]
+    source_count: int
+    errors: list[str]
+
+def extract(source_paths: list[str]) -> ExtractionResult:
+    """Extract raw records from source files.
+
+    Args:
+        source_paths: Paths to source data files
+
+    Returns:
+        ExtractionResult containing records and metadata
+    """
+    ...
+
+def validate(data: ExtractionResult) -> list[dict]:
+    """Validate extracted records and filter invalid ones.
+
+    Args:
+        data: Output from the extraction stage
+
+    Returns:
+        List of validated record dictionaries
+    """
+    ...
+```
+
+## Intermediate Results
+
+- For long-running pipelines, MUST support saving and loading intermediate results so individual stages can be re-run without executing the entire pipeline
+- MUST use a consistent serialization format (JSON, Parquet, or pickle depending on data type)
+- Intermediate result files MUST include metadata (timestamp, stage name, input parameters) for traceability
+- NEVER require the full pipeline to run end-to-end during development or debugging — each stage MUST be independently executable
+
+```python
+import json
+import logging
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+def save_stage_output(data: dict, stage_name: str, output_dir: Path) -> Path:
+    """Save intermediate pipeline results to disk.
+
+    Args:
+        data: The stage output data to persist
+        stage_name: Name of the pipeline stage
+        output_dir: Directory for intermediate result files
+
+    Returns:
+        Path to the saved output file
+    """
+    output_path = output_dir / f"{stage_name}_output.json"
+    output_path.write_text(json.dumps(data, default=str))
+    logger.info("Saved %s output to %s", stage_name, output_path)
+    return output_path
+
+def load_stage_output(stage_name: str, output_dir: Path) -> dict:
+    """Load previously saved intermediate pipeline results.
+
+    Args:
+        stage_name: Name of the pipeline stage to load
+        output_dir: Directory containing intermediate result files
+
+    Returns:
+        The deserialized stage output data
+    """
+    output_path = output_dir / f"{stage_name}_output.json"
+    return json.loads(output_path.read_text())
+```

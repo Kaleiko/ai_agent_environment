@@ -11,9 +11,10 @@
 #   1. Installs ai-interaction skill to ~/.claude/skills/
 #   2. Copies delegation rules to ~/.claude/rules/
 #   3. Copies agent definitions to ~/.claude/agents/
-#   4. Merges hook definitions into ~/.claude/settings.json
-#   5. Sets AI_AGENT_ENV_PATH environment variable
-#   6. Cleans up retired skills (ai-initialize, ai-sync)
+#   4. Copies commands to ~/.claude/commands/
+#   5. Merges hook definitions into ~/.claude/settings.json
+#   6. Sets AI_AGENT_ENV_PATH environment variable
+#   7. Cleans up retired skills (ai-initialize, ai-sync)
 #
 # USAGE:
 #   ./install.sh
@@ -68,7 +69,19 @@ for agent_file in "$REPO_DIR"/agents/*.md; do
 done
 
 # ---------------------------------------------------------------------------
-# Step 4: Merge hooks into ~/.claude/settings.json
+# Step 4: Copy commands to ~/.claude/commands/
+# ---------------------------------------------------------------------------
+
+COMMANDS_DIR="$HOME/.claude/commands"
+mkdir -p "$COMMANDS_DIR"
+for cmd_file in "$REPO_DIR"/commands/*.md; do
+  [ -f "$cmd_file" ] || continue
+  cp "$cmd_file" "$COMMANDS_DIR/$(basename "$cmd_file")"
+  echo "  Installed command: $(basename "$cmd_file")"
+done
+
+# ---------------------------------------------------------------------------
+# Step 5: Merge hooks into ~/.claude/settings.json
 # ---------------------------------------------------------------------------
 
 # Export so the merge script can reference it if needed
@@ -76,7 +89,7 @@ export AI_AGENT_ENV_PATH="$REPO_DIR"
 python3 "$REPO_DIR/scripts/merge_global_settings.py"
 
 # ---------------------------------------------------------------------------
-# Step 5: Set up AI_AGENT_ENV_PATH environment variable
+# Step 6: Set up AI_AGENT_ENV_PATH environment variable
 # ---------------------------------------------------------------------------
 
 if grep -q "AI_AGENT_ENV_PATH" "$SHELL_RC" 2>/dev/null; then
@@ -91,7 +104,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: Clean up retired skills
+# Step 7: Clean up retired skills
 # ---------------------------------------------------------------------------
 
 for retired in ai-initialize ai-sync; do

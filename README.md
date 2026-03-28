@@ -7,6 +7,7 @@ A centralized repository for Claude Code skills, agents, hooks, and prompts. Eve
 - [Architecture](#architecture)
 - [Setup](#setup)
 - [How It Works](#how-it-works)
+- [Commands](#commands)
 - [Skills](#skills)
 - [Agents](#agents)
 - [Hooks](#hooks)
@@ -22,7 +23,12 @@ A centralized repository for Claude Code skills, agents, hooks, and prompts. Eve
 │   └── delegation.md      # Agent delegation rules (always loaded)
 ├── agents/
 │   ├── python-developer.md
-│   └── next-developer.md
+│   ├── next-developer.md
+│   ├── plan-explorer.md
+│   ├── plan-critic.md
+│   └── plan-synthesizer.md
+├── commands/
+│   └── complex-plan.md
 └── skills/
     └── ai-interaction/    # Communication guidelines
         └── SKILL.md
@@ -41,6 +47,7 @@ $AI_AGENT_ENV_PATH/ (Repo — source of truth)
 │   └── session_start.py
 ├── skills/                # Convention files (read by subagent_start hook)
 ├── agents/                # Agent definitions (source of truth)
+├── commands/              # Slash command prompts (copied to ~/.claude/commands/)
 └── prompts/
     └── delegation.md      # Source of truth (copied to ~/.claude/rules/)
 
@@ -67,8 +74,9 @@ The install script:
 1. Copies `ai-interaction` skill to `~/.claude/skills/`
 2. Copies `delegation.md` to `~/.claude/rules/`
 3. Copies agent definitions to `~/.claude/agents/`
-4. Merges hook definitions into `~/.claude/settings.json` (preserving existing keys)
-5. Sets `AI_AGENT_ENV_PATH` environment variable
+4. Copies commands to `~/.claude/commands/`
+5. Merges hook definitions into `~/.claude/settings.json` (preserving existing keys)
+6. Sets `AI_AGENT_ENV_PATH` environment variable
 
 ### Updating
 
@@ -86,6 +94,46 @@ Then restart Claude Code.
 4. **Skills** are injected into subagents by the `subagent_start` hook at spawn time
 5. **Logs** are written to each project's `.claude/logs/` directory automatically
 
+## Commands
+
+Slash commands are installed to `~/.claude/commands/` and available globally as `/<command-name>`.
+
+| Command | Purpose |
+|---------|---------|
+| `/complex-plan` | Multi-agent planning pipeline for features spanning multiple codebases |
+
+### `/complex-plan`
+
+Use this command when a feature spans multiple codebases (e.g., frontend + backend + database) and needs coordinated planning before implementation.
+
+**Usage:**
+```
+/complex-plan Add user authentication with OAuth across the React frontend and Express API
+```
+
+You can also run `/complex-plan` with no arguments — it will ask you to describe the feature interactively.
+
+**What happens:**
+
+The command runs a 7-phase pipeline:
+
+1. **Gather** — Asks you clarifying questions: which codebases are involved (with paths), constraints, and success criteria.
+2. **Approve Scope** — Presents a Feature Summary for your approval before any planning begins.
+3. **Plan** — Spawns parallel planner agents, one per codebase. Each explores its codebase and produces an architectural spec.
+4. **Critic** — A single critic agent reviews ALL plans together, looking for cross-codebase conflicts, mismatched APIs, and gaps.
+5. **Synthesize** — Combines plans + critic feedback into a unified spec with implementation order, dependency graph, and cross-codebase contracts.
+6. **Approve Plan** — You review and approve the final spec (or request changes).
+7. **Handoff** — The approved spec is ready to hand off to implementation agents (`python-developer`, `next-developer`, etc.).
+
+**When to use it:**
+- Features touching 2+ codebases that need to agree on APIs, events, or shared types
+- Large features where you want architecture reviewed before writing code
+- Cross-team work that needs a clear, shareable implementation spec
+
+**When NOT to use it:**
+- Single-codebase changes — just ask Claude directly or use `/complex-plan` isn't needed
+- Small bug fixes or minor features — overhead isn't worth it
+
 ## Skills
 
 | Skill | Purpose | Location |
@@ -100,6 +148,9 @@ Then restart Claude Code.
 |-------|---------|
 | `python-developer` | Full workflow: understand, explore, plan, implement, verify, summarize |
 | `next-developer` | Same workflow for Next.js/TypeScript projects |
+| `plan-explorer` | Explores a single codebase and produces a planning spec (used by `/complex-plan`) |
+| `plan-critic` | Reviews all plans together, finds cross-codebase conflicts (used by `/complex-plan`) |
+| `plan-synthesizer` | Combines plans + critic feedback into a unified implementation spec (used by `/complex-plan`) |
 
 Agents receive their convention skills automatically via the `subagent_start` hook.
 

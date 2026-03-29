@@ -60,8 +60,9 @@ You are a codebase planner. Explore the codebase at [PATH] and produce a plannin
 [paste the approved Feature Summary here]
 
 ## Your Task
-1. Explore the codebase thoroughly — understand the architecture, patterns, and relevant code
-2. Produce a spec in EXACTLY this format:
+1. Start by checking for `ARCHITECTURE.md` and `README.md` in the project root — if either exists, read them first to orient to the codebase structure, purpose, and data flow before exploring further
+2. Explore the codebase thoroughly — understand the architecture, patterns, and relevant code
+3. Produce a spec in EXACTLY this format:
 
 ### Feature ID
 [codebase-name]-[feature-short-name]
@@ -72,24 +73,44 @@ You are a codebase planner. Explore the codebase at [PATH] and produce a plannin
 ### Current State
 [What exists today that's relevant — architecture, patterns, endpoints, models, etc.]
 
-### Design
-[Architectural approach — components, data flow, integration points. Stay at the design level, NOT file-level implementation details.]
+### Features & Expected Behavior
+[List each feature or capability this codebase must provide. For each, describe:]
+- What the feature does (user-facing or system-facing behavior)
+- Expected inputs (parameters, query strings, request bodies, data sources)
+- Expected outputs (response format, return types, side effects)
+
+### API Contracts (if applicable)
+[For any API endpoints this codebase must expose or consume, specify:]
+- HTTP method and URL path (e.g., `GET /api/vehicles`)
+- Query parameters or request body schema with types
+- Response schema with types and example payload
+- Error response format
 
 ### Acceptance Criteria
-[Specific, testable criteria for this codebase's part of the feature]
+[Specific, testable criteria for this codebase's part of the feature — focused on WHAT the system should do, not HOW it should be implemented]
 
 ### Cross-Codebase Dependencies
-[What this codebase needs FROM or provides TO other codebases — APIs, events, shared types, data contracts]
+[What this codebase needs FROM or provides TO other codebases — API contracts, event schemas, shared data formats. Be specific about the interface, not the implementation.]
 
 ### Risks
 [Only if genuinely warranted — don't fabricate risks. If none, write "None identified."]
+
+## IMPORTANT — Scope Boundaries
+- NEVER specify file names, directory structures, class names, or module organization — that is the developer agent's responsibility
+- NEVER dictate implementation patterns (e.g., "use a factory pattern", "create a service class") — the developer agent chooses the implementation approach
+- DO specify what features to build, what inputs they accept, what outputs they produce, and what contracts they must honor
+- Think of this spec as a product/architecture brief, NOT a code blueprint
 ```
 
 Save the agent ID for each subagent. Collect ALL plan outputs before proceeding.
 
 ---
 
-## Phase 4: CRITIC (Single Subagent)
+## Phase 4: CRITIC → PLANNER REVISION LOOP
+
+This phase is a loop between the critic and the planners. The loop continues until the critic approves ALL plans. Do NOT proceed to Phase 5 until the critic verdict is **APPROVE**.
+
+### Step 4a: CRITIC REVIEW
 
 Spawn a single `plan-critic` subagent using the Task tool:
 
@@ -106,7 +127,10 @@ You are a planning critic. Review these codebase plans for a cross-codebase feat
 [paste Feature Summary]
 
 ## Plans to Review
-[paste ALL plan outputs from Phase 3, clearly labeled by codebase]
+[paste ALL plan outputs from Phase 3 (or revised plans from Step 4b if this is a re-review), clearly labeled by codebase]
+
+## Review Round
+[Round number — e.g., "Round 1", "Round 2", etc.]
 
 ## Your Task
 Perform a thorough review. Output in EXACTLY this format:
@@ -126,21 +150,48 @@ For each plan:
 
 ### Verdict
 One of:
-- **APPROVE** — Plans are solid, proceed to synthesis
-- **APPROVE WITH CHANGES** — Minor issues noted above, synthesizer should incorporate feedback
-- **NEEDS REWORK** — Fundamental issues found, plans need revision before synthesis
+- **APPROVE** — All plans are solid and consistent, proceed to synthesis
+- **NEEDS REVISION** — Issues found above must be addressed by the planners before proceeding
+
+If NEEDS REVISION, clearly specify which codebase plan(s) need changes and exactly what must be fixed.
 
 You may explore any of the codebases to verify planner claims. Codebase paths:
 [list paths]
 ```
 
-If the critic verdict is **NEEDS REWORK**, resume the relevant plan-explorer subagents with the critic's feedback and re-run Phase 4. Loop until the verdict is APPROVE or APPROVE WITH CHANGES.
+### Step 4b: PLANNER REVISION (only if critic verdict is NEEDS REVISION)
+
+Resume the plan-explorer subagents whose plans were flagged by the critic. For each flagged plan, resume the subagent with:
+
+```
+The critic has reviewed your plan and found issues that must be addressed.
+
+## Critic Feedback for Your Plan
+[paste the specific Per-Plan Feedback for this codebase from Step 4a]
+
+## Cross-Codebase Issues Affecting Your Plan
+[paste any Cross-Codebase Issues relevant to this codebase]
+
+## Missing Considerations
+[paste any Missing Considerations that apply]
+
+## Your Task
+Revise your plan to address ALL of the critic's feedback. Produce a COMPLETE revised plan in the same format as your original — do not produce a partial diff. The revised plan will be sent back to the critic for re-review.
+```
+
+After ALL flagged planners have produced revised plans, go back to **Step 4a** with the updated plans. Increment the review round number.
+
+### Loop Exit
+
+- Exit the loop ONLY when the critic verdict is **APPROVE**
+- Maximum 3 rounds — if the critic has not approved after 3 rounds, present the current state to the user and ask for guidance
+- Inform the user of each round's status (e.g., "Critic round 2: requested revisions to backend plan, frontend plan approved")
 
 ---
 
 ## Phase 5: SYNTHESIZE (Single Subagent)
 
-Spawn a single `plan-synthesizer` subagent using the Task tool:
+Spawn a single `plan-synthesizer` subagent using the Task tool. This phase runs ONLY after the critic has approved all plans.
 
 ```
 subagent_type: "Plan"
@@ -149,16 +200,16 @@ subagent_type: "Plan"
 Pass this prompt:
 
 ```
-You are a planning synthesizer. Combine these reviewed plans into a unified implementation spec.
+You are a planning synthesizer. Combine these critic-approved plans into a unified implementation spec.
 
 ## Feature Summary
 [paste Feature Summary]
 
-## Plans
-[paste ALL plan outputs from Phase 3]
+## Approved Plans
+[paste ALL final approved plan outputs — these have already been reviewed and approved by the critic]
 
-## Critic Feedback
-[paste critic output from Phase 4]
+## Final Critic Review
+[paste the final APPROVE critic output for reference]
 
 ## Your Task
 Produce a unified spec in EXACTLY this format:
@@ -173,14 +224,17 @@ Produce a unified spec in EXACTLY this format:
 ...
 
 ### Per-Codebase Specs
-For each codebase, the REVISED spec incorporating critic feedback:
+For each codebase:
 #### [Codebase Name]
-- **Design**: [revised design]
-- **Acceptance Criteria**: [revised criteria]
-- **Key Decisions**: [any decisions made based on critic feedback]
+- **Features & Expected Behavior**: [what to build — inputs, outputs, behavior]
+- **API Contracts**: [endpoints, parameters, response schemas — if applicable]
+- **Acceptance Criteria**: [testable criteria]
+- **Key Decisions**: [any decisions made during the planning/review process]
+
+IMPORTANT: Per-codebase specs MUST define WHAT to build and the contracts to honor. NEVER specify file structures, class names, directory layouts, or implementation patterns — those decisions belong to the developer agent.
 
 ### Cross-Codebase Contracts
-[Explicit API contracts, event schemas, shared types that codebases must agree on. Be specific — include endpoint paths, payload shapes, event names.]
+[Explicit API contracts, event schemas, shared data formats that codebases must agree on. Be specific — include endpoint paths, query parameters, request/response payload shapes with types, event names. These contracts are the handshake between developer agents.]
 
 ### Dependency Graph
 [Visual or textual representation of what depends on what, both within and across codebases]
@@ -224,3 +278,12 @@ The unified spec is now the implementation plan. Tell the user:
 - Pass subagent outputs VERBATIM to the next phase — do not summarize or rewrite them
 - If a phase fails or a subagent returns an incomplete result, retry that phase before moving on
 - Keep the user informed of progress between phases with brief status updates
+- Phase 4 is a LOOP — the critic and planners go back and forth until the critic approves. NEVER skip the revision step when the critic finds issues. NEVER send unapproved plans to the synthesizer
+- Maximum 3 critic rounds — escalate to the user if not resolved
+
+### Planning Boundary — MANDATORY
+- The plan defines WHAT to build, not HOW to build it
+- NEVER specify file names, directory structures, class names, module organization, or implementation patterns
+- MUST specify: features, expected behavior, input parameters, output formats, API contracts (URLs, methods, request/response schemas), acceptance criteria
+- Developer agents (python-developer, next-developer) own ALL implementation decisions — file layout, code architecture, design patterns, naming
+- Cross-codebase contracts (API endpoints, event schemas, shared data formats) are the primary deliverable — they are what allow independent developer agents to build compatible systems

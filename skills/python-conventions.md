@@ -1,6 +1,6 @@
 ---
 name: python-conventions
-description: "Python conventions: code style, error handling, logging, testing, project structure, code review, pipeline architecture"
+description: "Python conventions: code style, error handling, logging, testing, project structure, code review, pipeline architecture, README maintenance"
 globs: ["**/*.py"]
 ---
 
@@ -459,6 +459,12 @@ source .venv/bin/activate
 - MUST have zero linting errors or warnings
 - MUST NEVER submit code that fails any of the above checks
 
+## Documentation
+
+- MUST verify the README is up to date with all code changes (per Section 11)
+- MUST verify ARCHITECTURE.md is up to date if the change affects structure, modules, or data flow (per Section 12)
+- If any code change affects features, setup, usage, structure, or configuration, the relevant docs MUST be updated in the same changeset
+
 ---
 
 # 10. Pipeline & Workflow Architecture
@@ -591,4 +597,102 @@ def load_stage_output(stage_name: str, output_dir: Path) -> dict:
     """
     output_path = output_dir / f"{stage_name}_output.json"
     return json.loads(output_path.read_text())
+```
+
+---
+
+# 11. README Maintenance
+
+## New Projects
+
+- MUST create a `README.md` in the project root when starting any new Python project
+- The README MUST include these sections at minimum:
+  - **Project Title & Description** — what the project does and why it exists
+  - **Setup & Installation** — how to set up the environment, install dependencies, and configure `.env`
+  - **Usage** — how to run the project, including CLI commands or entry points
+  - **Project Structure** — overview of directory layout and key files
+  - **Pipeline / Workflow** — if the project has multi-step pipelines, document each stage, its inputs, and its outputs
+  - **Configuration** — environment variables, settings, and configuration options
+
+## Keeping the README Current
+
+- MUST review the README after ANY code change and update it if the change affects:
+  - New or removed features / pipeline stages
+  - Changed setup steps, dependencies, or environment variables
+  - Modified CLI commands, entry points, or usage patterns
+  - Altered project structure (new directories, moved files, renamed modules)
+  - Changed configuration options or settings
+- If a code change does NOT affect any of the above, the README does NOT need to change
+- NEVER let the README fall out of sync with the actual code — an outdated README is worse than no README
+
+## Rules
+
+- MUST update the README in the SAME commit or set of changes as the code it documents — NEVER defer README updates to a later task
+- MUST keep the README concise and scannable — use short descriptions, bullet points, and code blocks
+- NEVER include implementation details that belong in docstrings or code comments — the README is for users and developers orienting to the project
+- MUST document how to run individual pipeline stages independently (per Section 10) in the Usage or Pipeline section
+- MUST update the Project Structure section when files or directories are added, moved, or removed
+
+---
+
+# 12. Architecture Documentation
+
+## Session Start
+
+- At the START of every session, MUST check if `ARCHITECTURE.md` exists in the project root
+- If it exists, MUST read it to orient to the project structure before making any changes
+- If it does NOT exist, MUST create it before proceeding with any other work — analyze the existing codebase and generate the file following the Required Content guidelines below
+- The purpose of `ARCHITECTURE.md` is to give both humans and AI agents a high-level understanding of how the codebase is organized — it is NOT a replacement for the README or code-level docstrings
+
+## Required Content
+
+- **Overview** — 2-3 sentence summary of the system's purpose and design approach
+- **Directory Structure** — what each top-level directory and key subdirectory is responsible for
+- **Key Files** — purpose of important root-level and configuration files (e.g., `main.py`, `settings.py`, `pyproject.toml`)
+- **Module Responsibilities** — what each module/package in `src/` does and its role in the system
+- **Data Flow** — how data moves through the system (e.g., "scrapers fetch raw data → processors normalize it → exporters write to database")
+- **External Dependencies** — what major third-party services or APIs the project integrates with and which modules own those integrations
+
+## What NOT to Include
+
+- NEVER include function signatures, class methods, or implementation details — that belongs in docstrings
+- NEVER include setup/install instructions — that belongs in the README
+- NEVER include API endpoint documentation — use a dedicated API doc or OpenAPI spec for that
+- Keep descriptions to 1-2 sentences per item — this is a map, not a manual
+
+## Keeping ARCHITECTURE.md Current
+
+- MUST review `ARCHITECTURE.md` after ANY code change and update it if the change affects:
+  - New or removed directories or modules
+  - Changed module responsibilities (e.g., a module now handles a different concern)
+  - New external service integrations
+  - Changed data flow between components
+- If a code change does NOT affect the structure or organization, `ARCHITECTURE.md` does NOT need to change
+- MUST update `ARCHITECTURE.md` in the SAME commit or set of changes as the structural code change — NEVER defer
+
+## Example
+
+```markdown
+# Architecture
+
+## Overview
+CarFinder is a pipeline that scrapes vehicle listings from multiple marketplaces,
+enriches them with valuation data, and outputs ranked deals.
+
+## Directory Structure
+- `src/scrapers/` — Data collection from external marketplaces (one module per source)
+- `src/processors/` — Normalization, deduplication, and enrichment of raw listings
+- `src/valuations/` — Integration with pricing/valuation APIs (KBB, Edmunds)
+- `src/exporters/` — Output formatters (CSV, database, notifications)
+- `src/common/` — Shared utilities, custom exceptions, and data models
+- `tests/` — Unit and integration tests mirroring the src/ structure
+- `config/` — Environment-specific configuration templates
+
+## Key Files
+- `main.py` — Entry point; orchestrates the pipeline stages
+- `settings.py` — Runtime configuration loaded from environment variables
+- `pyproject.toml` — Project metadata and dependency definitions
+
+## Data Flow
+Scrapers → Processors (normalize/deduplicate) → Valuations (price lookup) → Exporters (output)
 ```

@@ -119,11 +119,13 @@ The command runs a 7-phase pipeline:
 
 1. **Gather** — Asks you clarifying questions: which codebases are involved (with paths), constraints, and success criteria.
 2. **Approve Scope** — Presents a Feature Summary for your approval before any planning begins.
-3. **Plan** — Spawns parallel planner agents, one per codebase. Each explores its codebase and produces an architectural spec.
-4. **Critic** — A single critic agent reviews ALL plans together, looking for cross-codebase conflicts, mismatched APIs, and gaps.
-5. **Synthesize** — Combines plans + critic feedback into a unified spec with implementation order, dependency graph, and cross-codebase contracts.
+3. **Plan** — Spawns parallel planner agents, one per codebase. Each reads `ARCHITECTURE.md`/`README.md` first, then explores and produces a feature spec (what to build, inputs/outputs, API contracts).
+4. **Critic ↔ Planner Loop** — A critic reviews ALL plans for conflicts and gaps. If issues are found, flagged planners revise and the critic re-reviews. Loops until the critic approves all plans (max 3 rounds).
+5. **Synthesize** — Combines the critic-approved plans into a unified spec with implementation order, dependency graph, and cross-codebase contracts. Only runs after all plans are approved.
 6. **Approve Plan** — You review and approve the final spec (or request changes).
 7. **Handoff** — The approved spec is ready to hand off to implementation agents (`python-developer`, `next-developer`, etc.).
+
+**Planning boundary:** The plan defines *what* to build (features, behavior, inputs, outputs, API contracts) — never *how* (file structure, class names, implementation patterns). Developer agents own all implementation decisions.
 
 **When to use it:**
 - Features touching 2+ codebases that need to agree on APIs, events, or shared types
@@ -139,7 +141,7 @@ The command runs a 7-phase pipeline:
 | Skill | Purpose | Location |
 |-------|---------|----------|
 | `ai-interaction` | Communication standards, code review process | Global (`~/.claude/skills/`) |
-| `python-conventions` | Code style, error handling, logging, testing | Repo (`skills/`), injected by hook |
+| `python-conventions` | Code style, error handling, logging, testing, pipeline architecture, README & ARCHITECTURE.md maintenance | Repo (`skills/`), injected by hook |
 | `next-conventions` | Next.js/TypeScript conventions | Repo (`skills/`), injected by hook |
 
 ## Agents

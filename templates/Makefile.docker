@@ -1,0 +1,29 @@
+.PHONY: attach build down help logs restart shell stop up
+
+# make attach - runs container logs in the terminal
+attach:
+	docker attach --sig-proxy=false {container_name}
+
+# make build - build all containers and then run containers
+build:
+	docker compose build --no-cache
+
+# make bash - bash into container
+bash:
+	docker exec -it {container_name} sh
+
+# make down - remove all containers
+down:
+	docker compose down
+
+# make help - display all callable targets
+help:
+	@egrep "^# make" [Mm]akefile
+
+# make logs - view container logs
+logs:
+	docker logs {container_name}
+
+# make restart - restart container
+restart:
+	docker restart {container_name}

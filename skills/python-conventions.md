@@ -706,3 +706,12 @@ enriches them with valuation data, and outputs ranked deals.
 ## Data Flow
 Scrapers → Processors (normalize/deduplicate) → Valuations (price lookup) → Exporters (output)
 ```
+
+---
+
+# 13. Plan Storage
+
+- ALL implementation plans, architecture plans, and phase plans MUST be saved to `.claude/plans/` in the project directory
+- NEVER save plan files to the project root or other locations
+- Plan files MUST use descriptive names (e.g., `PHASE1_IMPLEMENTATION_PLAN.md`, `ARCHITECTURE_PLAN.md`)
+- Plans MUST be kept up to date as work progresses — mark completed items, update status

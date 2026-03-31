@@ -167,8 +167,8 @@ Hooks provide deterministic security enforcement and logging. They are registere
 | `post_tool_use_failure.py` | `PostToolUseFailure` | Logs tool failures for debugging |
 | `subagent_stop.py` | `SubagentStop` | Captures subagent transcripts to per-agent log directories |
 | `subagent_start.py` | `SubagentStart` | Injects skill files as context when mapped subagents spawn |
-| `session_stop.py` | `Stop` | Parses session transcript into condensed chat log |
-| `session_start.py` | `SessionStart` | Injects previous session context on startup |
+| `session_stop.py` | `Stop` | Parses session transcript into condensed chat log (20K char limit) |
+| `session_start.py` | `SessionStart` | Archives previous session, injects up to 2 sessions of context + active plans |
 
 ### Security hook (`pre_tool_use`)
 
@@ -184,25 +184,43 @@ Two-tier skill lookup:
 
 This lets projects override conventions when needed while defaulting to the repo.
 
+### Session continuity
+
+On session stop, the current conversation is saved to `last_session.md` (up to 20K chars). On next startup:
+
+1. `last_session.md` is archived to `.claude/logs/sessions/{timestamp}_session.md`
+2. The 2 most recent session files are injected as context (15K for recent, 5K for older)
+3. Any plan files in `.claude/plans/` are listed
+4. Sessions older than the 2 most recent are deleted
+
+This gives the agent 2 sessions of context to recover from, even if a session was closed early.
+
 ### Log structure
 
 ```
-.claude/logs/
-├── last_session.md                  # Condensed chat from previous session
-├── security/
-│   └── blocked.jsonl               # Blocked tool calls
-├── audit/
-│   ├── pre_tool_use.jsonl           # Full tool call payloads
-│   ├── permission_request.jsonl     # Permission decisions
-│   ├── tool_failures.jsonl          # Tool failure details
-│   ├── session_stop.jsonl           # Session stop events
-│   ├── session_start.jsonl          # Session start events
-│   └── subagent_start.jsonl         # Subagent skill injection events
-└── agents/
-    ├── .agent_map.json              # agent_id → directory mapping
-    └── python-developer-1/
-        ├── transcript.jsonl         # Continuous transcript log
-        └── summary.jsonl            # Structured stop events
+.claude/
+├── logs/
+│   ├── last_session.md                  # Current/most recent session chat log
+│   ├── sessions/                        # Archived previous sessions (max 2 kept)
+│   │   ├── 2026-03-29T14-30-00_session.md
+│   │   └── 2026-03-30T10-15-00_session.md
+│   ├── security/
+│   │   └── blocked.jsonl               # Blocked tool calls
+│   ├── audit/
+│   │   ├── pre_tool_use.jsonl           # Full tool call payloads
+│   │   ├── permission_request.jsonl     # Permission decisions
+│   │   ├── tool_failures.jsonl          # Tool failure details
+│   │   ├── session_stop.jsonl           # Session stop events
+│   │   ├── session_start.jsonl          # Session start events
+│   │   └── subagent_start.jsonl         # Subagent skill injection events
+│   └── agents/
+│       ├── .agent_map.json              # agent_id → directory mapping
+│       └── python-developer-1/
+│           ├── transcript.jsonl         # Continuous transcript log
+│           └── summary.jsonl            # Structured stop events
+├── plans/                               # Implementation & architecture plans
+│   ├── ARCHITECTURE_PLAN.md
+│   └── PHASE1_IMPLEMENTATION_PLAN.md
 ```
 
 All log files are automatically trimmed to a maximum of **10 MB**.

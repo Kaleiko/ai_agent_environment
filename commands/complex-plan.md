@@ -261,12 +261,12 @@ Do NOT proceed to Phase 7 until approved.
 
 ## Phase 7: HANDOFF
 
-The unified spec is now the implementation plan. Tell the user:
-
-1. The plan is approved and ready for implementation
-2. Each per-codebase spec can be handed to the appropriate implementation agent (python-developer, next-developer, etc.)
-3. Implementation should follow the Implementation Order from the spec
-4. Cross-codebase contracts should be implemented first to unblock parallel work
+1. Save the approved unified spec to `.claude/plans/` in each relevant codebase directory (e.g., `.claude/plans/ARCHITECTURE_PLAN.md` or `.claude/plans/{feature-name}_PLAN.md`)
+2. Tell the user:
+   - The plan is approved and saved
+   - Each per-codebase spec can be handed to the appropriate implementation agent (python-developer, next-developer, etc.)
+   - Implementation should follow the Implementation Order from the spec
+   - Cross-codebase contracts should be implemented first to unblock parallel work
 
 ---
 

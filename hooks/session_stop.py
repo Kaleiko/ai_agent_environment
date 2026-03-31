@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-MAX_CHAT_CHARS = 4000
+MAX_CHAT_CHARS = 20_000
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 
 

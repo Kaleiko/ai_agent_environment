@@ -1,6 +1,6 @@
 ---
 name: python-conventions
-description: "Python conventions: code style, error handling, logging, testing, project structure, code review, pipeline architecture, README maintenance"
+description: "Python conventions: code style, error handling, logging, testing, project structure, code review, pipeline architecture, README maintenance, FastAPI"
 globs: ["**/*.py"]
 ---
 
@@ -715,3 +715,373 @@ Scrapers → Processors (normalize/deduplicate) → Valuations (price lookup) �
 - NEVER save plan files to the project root or other locations
 - Plan files MUST use descriptive names (e.g., `PHASE1_IMPLEMENTATION_PLAN.md`, `ARCHITECTURE_PLAN.md`)
 - Plans MUST be kept up to date as work progresses — mark completed items, update status
+
+---
+
+# 14. FastAPI Conventions
+
+## End-to-End API Testing (MANDATORY)
+
+Every API endpoint MUST have end-to-end tests that verify the full request/response cycle. This is non-negotiable — no endpoint ships without tests.
+
+### Requirements
+
+- MUST use `httpx.AsyncClient` with `ASGITransport` (or `TestClient` for sync tests) against the actual FastAPI app — no mocking the app itself
+- MUST test the real request path: routing → dependencies → handler → response
+- MUST cover: success cases, expected error cases (4xx), and input validation
+- MUST assert on status codes, response body structure, and key field values
+- MUST test with realistic payloads, not empty or trivial data
+
+### Test Structure
+
+- All end-to-end tests MUST be placed in `tests/end-to-end-testing/`
+- Mirror the route structure within that directory (e.g., `tests/end-to-end-testing/test_users.py` for `routes/users.py`)
+- Each endpoint gets its own test function (or class) — do not bundle unrelated endpoints
+- Use fixtures for app client, auth tokens, and test data setup/teardown
+
+### What Counts as End-to-End
+
+- The test sends an HTTP request and receives an HTTP response
+- Database operations (if any) execute against a real test database, not mocks
+- External service calls MAY be mocked at the boundary, but everything inside the app is real
+
+### Running Tests After Code Changes
+
+- After ANY code change to the FastAPI app, you MUST run the full end-to-end test suite: `pytest tests/end-to-end-testing/`
+- This applies to ALL changes — route handlers, models, middleware, dependencies, config, database schemas
+- Do NOT selectively run only the tests for the files you changed — run the entire suite to catch regressions
+- If any test fails, fix the issue before considering the task complete
+
+### Test Data Cleanup (MANDATORY)
+
+- Tests that create, modify, or delete data MUST clean up after themselves
+- Use pytest fixtures with `yield` for setup/teardown — create test data before `yield`, delete it after
+- POST tests: delete the created resource in teardown
+- PATCH/PUT tests: restore the original state or delete the test resource in teardown
+- DELETE tests: create the resource in setup, test the delete, verify it's gone — no teardown needed
+- MUST NOT rely on test execution order — each test must be independently runnable
+- MUST NOT leave orphaned data that could cause other tests to fail or produce false positives
+
+### What Does NOT Count
+
+- Calling handler functions directly (bypasses middleware, deps, validation)
+- Unit testing Pydantic models in isolation (useful but not a substitute)
+- Testing with mocked request/response objects
+
+### Example: conftest.py Setup
+
+The root `tests/conftest.py` MUST set environment variables and mock security modules **before** any `src` imports. This prevents module-level side effects (RSA key loading, engine creation) from failing during test collection.
+
+```python
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
+# STEP 1: Set environment variables BEFORE any src imports
+os.environ["POSTGRES_URL"] = "postgresql+asyncpg://test:test@localhost:5432/test_db"
+os.environ["MONGO_URL"] = "mongodb://localhost:27017"
+os.environ["MONGO_DB_NAME"] = "test_db"
+os.environ["RSA_PRIVATE_KEY_PATH"] = ""
+os.environ["RSA_PUBLIC_KEY_PATH"] = ""
+os.environ["ENVIRONMENT"] = "test"
+os.environ["LOG_LEVEL"] = "DEBUG"
+
+# STEP 2: Mock security module BEFORE src imports to prevent RSA key loading
+mock_security = MagicMock()
+mock_security.load_rsa_public_key = MagicMock(return_value="mock-public-key")
+mock_security.load_rsa_private_key = MagicMock(return_value="mock-private-key")
+mock_security.decode_jwt = MagicMock(return_value={"sub": "test-user-id", "type": "access"})
+mock_security.encode_jwt = MagicMock(return_value="mock-jwt-token")
+mock_security.hash_password = MagicMock(return_value="hashed-password")
+mock_security.verify_password = MagicMock(return_value=True)
+patch("src.common.security", mock_security).start()
+
+# STEP 3: Patch settings with deterministic test values
+mock_settings = MagicMock()
+mock_settings.POSTGRES_URL = os.environ["POSTGRES_URL"]
+mock_settings.MONGO_URL = os.environ["MONGO_URL"]
+mock_settings.MONGO_DB_NAME = os.environ["MONGO_DB_NAME"]
+mock_settings.ENVIRONMENT = "test"
+patch("src.config.settings", mock_settings).start()
+```
+
+### Example: Shared Fixtures
+
+These fixtures MUST be defined in the test module's conftest or in each test file. They provide the async HTTP client and dependency overrides.
+
+```python
+import uuid
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from unittest.mock import MagicMock
+
+from src.main import app
+from src.middleware.auth import get_current_user
+from src.middleware.tenancy import get_current_tenant
+
+FIXED_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+FIXED_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+
+def _make_mock_user() -> MagicMock:
+    """Create a mock User object for dependency overrides."""
+    user = MagicMock()
+    user.id = FIXED_USER_ID
+    user.email = "test@example.com"
+    user.is_active = True
+    return user
+
+
+def _override_get_current_user() -> MagicMock:
+    """Override the auth dependency to return a fixed test user."""
+    return _make_mock_user()
+
+
+def _override_get_current_tenant() -> uuid.UUID:
+    """Override the tenancy dependency to return a fixed tenant ID."""
+    return FIXED_TENANT_ID
+
+
+@pytest.fixture
+async def client() -> AsyncClient:
+    """Create httpx AsyncClient with ASGI transport for testing."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+@pytest.fixture(autouse=True)
+def override_auth_dependency() -> None:
+    """Override get_current_user for all tests in this module."""
+    app.dependency_overrides[get_current_user] = _override_get_current_user
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture(autouse=True)
+def override_tenant_dependency() -> None:
+    """Override get_current_tenant for all tests in this module."""
+    app.dependency_overrides[get_current_tenant] = _override_get_current_tenant
+    yield
+    app.dependency_overrides.pop(get_current_tenant, None)
+```
+
+### Example: Test Class Structure
+
+Each endpoint MUST have a dedicated test class. Tests MUST cover success, error, and validation cases.
+
+```python
+import uuid
+
+import pytest
+from httpx import AsyncClient
+from unittest.mock import AsyncMock, patch
+
+from src.common.exceptions import ConflictError, NotFoundError
+
+API_PREFIX = "/api/v1"
+
+
+class TestCreateAccountEndpoint:
+    """Tests for POST /api/v1/accounts/."""
+
+    async def test_create_account_success(self, client: AsyncClient) -> None:
+        """Successfully create a new account returns 201."""
+        payload = {
+            "name": "Cash on Hand",
+            "code": "1010",
+            "account_type": "asset",
+            "description": "Petty cash and register funds",
+        }
+        expected_response = {
+            "id": str(uuid.uuid4()),
+            "name": "Cash on Hand",
+            "code": "1010",
+            "account_type": "asset",
+            "is_active": True,
+        }
+
+        with patch("src.api.accounts._account_service") as mock_service:
+            mock_service.create_account = AsyncMock(return_value=expected_response)
+            response = await client.post(f"{API_PREFIX}/accounts/", json=payload)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Cash on Hand"
+        assert data["code"] == "1010"
+        assert data["account_type"] == "asset"
+
+    async def test_create_account_duplicate_code(self, client: AsyncClient) -> None:
+        """Creating account with duplicate code returns 409."""
+        payload = {"name": "Duplicate", "code": "1010", "account_type": "asset"}
+
+        with patch("src.api.accounts._account_service") as mock_service:
+            mock_service.create_account = AsyncMock(
+                side_effect=ConflictError(message="Account code already exists")
+            )
+            response = await client.post(f"{API_PREFIX}/accounts/", json=payload)
+
+        assert response.status_code == 409
+        assert "already exists" in response.json()["error"]
+
+    async def test_create_account_missing_required_field(self, client: AsyncClient) -> None:
+        """Missing required fields returns 422."""
+        payload = {"name": "Missing Code"}  # Missing 'code' and 'account_type'
+        response = await client.post(f"{API_PREFIX}/accounts/", json=payload)
+        assert response.status_code == 422
+
+
+class TestGetAccountEndpoint:
+    """Tests for GET /api/v1/accounts/{id}."""
+
+    async def test_get_account_success(self, client: AsyncClient) -> None:
+        """Fetching an existing account returns 200."""
+        account_id = uuid.uuid4()
+        expected = {"id": str(account_id), "name": "Cash", "code": "1010"}
+
+        with patch("src.api.accounts._account_service") as mock_service:
+            mock_service.get_account = AsyncMock(return_value=expected)
+            response = await client.get(f"{API_PREFIX}/accounts/{account_id}")
+
+        assert response.status_code == 200
+        assert response.json()["id"] == str(account_id)
+
+    async def test_get_account_not_found(self, client: AsyncClient) -> None:
+        """Fetching non-existent account returns 404."""
+        account_id = uuid.uuid4()
+
+        with patch("src.api.accounts._account_service") as mock_service:
+            mock_service.get_account = AsyncMock(
+                side_effect=NotFoundError(message="Account not found")
+            )
+            response = await client.get(f"{API_PREFIX}/accounts/{account_id}")
+
+        assert response.status_code == 404
+
+
+class TestListAccountsEndpoint:
+    """Tests for GET /api/v1/accounts/."""
+
+    async def test_list_accounts_with_pagination(self, client: AsyncClient) -> None:
+        """List accounts respects pagination parameters."""
+        expected = {
+            "items": [{"id": str(uuid.uuid4()), "name": "Cash"}],
+            "total": 1,
+            "page": 1,
+            "size": 50,
+        }
+
+        with patch("src.api.accounts._account_service") as mock_service:
+            mock_service.list_accounts = AsyncMock(return_value=expected)
+            response = await client.get(f"{API_PREFIX}/accounts/?page=1&size=50")
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+
+    async def test_list_accounts_with_type_filter(self, client: AsyncClient) -> None:
+        """List accounts filters by account_type."""
+        with patch("src.api.accounts._account_service") as mock_service:
+            mock_service.list_accounts = AsyncMock(return_value={"items": [], "total": 0})
+            response = await client.get(f"{API_PREFIX}/accounts/?account_type=asset")
+
+        assert response.status_code == 200
+```
+
+### Example: Auth Endpoint Tests (No Tenant Context)
+
+Auth endpoints do NOT use tenant context. Tests MUST NOT override `get_current_tenant` and MUST NOT override `get_current_user` (since these endpoints handle their own auth).
+
+```python
+class TestLoginEndpoint:
+    """Tests for POST /api/v1/auth/login."""
+
+    @pytest.fixture(autouse=True)
+    def clear_overrides(self) -> None:
+        """Auth endpoints must NOT have dependency overrides."""
+        app.dependency_overrides.clear()
+        yield
+        app.dependency_overrides.clear()
+
+    async def test_login_success_json_transport(self, client: AsyncClient) -> None:
+        """Successful login with JSON transport returns tokens in body."""
+        credentials = {"email": "user@example.com", "password": "SecurePass123!"}
+        mock_response = {
+            "access_token": "mock-jwt",
+            "refresh_token": "mock-refresh",
+            "token_type": "bearer",
+        }
+
+        with patch("src.api.auth._auth_service") as mock_service:
+            mock_service.login = AsyncMock(return_value=mock_response)
+            response = await client.post(
+                f"{API_PREFIX}/auth/login?transport=json", json=credentials
+            )
+
+        assert response.status_code == 200
+        assert "access_token" in response.json()
+
+    async def test_login_success_cookie_transport(self, client: AsyncClient) -> None:
+        """Successful login with cookie transport sets httpOnly cookie."""
+        credentials = {"email": "user@example.com", "password": "SecurePass123!"}
+
+        with patch("src.api.auth._auth_service") as mock_service:
+            mock_service.login = AsyncMock(return_value={"access_token": "jwt", "refresh_token": "rt"})
+            response = await client.post(
+                f"{API_PREFIX}/auth/login?transport=cookie", json=credentials
+            )
+
+        assert response.status_code == 200
+        assert "set-cookie" in response.headers
+
+    async def test_login_invalid_credentials(self, client: AsyncClient) -> None:
+        """Invalid credentials returns 401."""
+        from src.common.exceptions import AuthenticationError
+
+        with patch("src.api.auth._auth_service") as mock_service:
+            mock_service.login = AsyncMock(
+                side_effect=AuthenticationError(message="Invalid email or password")
+            )
+            response = await client.post(
+                f"{API_PREFIX}/auth/login?transport=json",
+                json={"email": "wrong@example.com", "password": "bad"},
+            )
+
+        assert response.status_code == 401
+```
+
+### Minimum Test Coverage Per Endpoint
+
+Every endpoint MUST have tests covering AT LEAST these scenarios:
+
+| Scenario | Status Code | Required |
+|----------|-------------|----------|
+| Success (happy path) | 2xx | ALWAYS |
+| Missing required fields | 422 | ALWAYS |
+| Resource not found | 404 | If endpoint takes an ID |
+| Duplicate / conflict | 409 | If endpoint creates or updates |
+| Unauthorized (no token) | 401 | If endpoint requires auth |
+| Forbidden (wrong tenant) | 403 | If endpoint is tenant-scoped |
+| Invalid input values | 422 | If endpoint has constrained params |
+| Pagination / filtering | 200 | If endpoint returns lists |
+
+### Service Patching Rules
+
+- MUST patch the service object at the route module level (e.g., `patch("src.api.accounts._account_service")`)
+- MUST use `AsyncMock` for async service methods
+- MUST use `side_effect` for error cases — set it to the appropriate custom exception
+- MUST verify the service method was called with expected arguments using `mock_service.method.assert_called_once_with(...)`
+- NEVER mock the FastAPI app, HTTP client, or ASGI transport — these MUST be real
+- NEVER mock Pydantic validation — let the real validators run
+
+### Running the E2E Suite
+
+```bash
+# Run ALL end-to-end tests (MANDATORY after any code change)
+pytest tests/end-to-end-testing/ -v
+
+# Run tests for a specific route module
+pytest tests/end-to-end-testing/test_accounts.py -v
+
+# Run with coverage
+pytest tests/end-to-end-testing/ --cov=src/api --cov-report=term-missing
+```

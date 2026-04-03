@@ -21,11 +21,6 @@ AGENT_SKILLS = {
     "next-developer": ["next-conventions.md"],
 }
 
-# Conditional skills: detected via project files, injected alongside base skills
-# Format: {skill_filename: {agent_types, detection_function_name}}
-FASTAPI_SKILL = "fastapi-conventions.md"
-FASTAPI_DEPENDENCY_FILES = ["pyproject.toml", "requirements.txt", "setup.cfg"]
-
 
 def enforce_max_size_text(file_path: Path) -> None:
     """Trim a text log file to MAX_LOG_BYTES by removing oldest lines."""
@@ -109,31 +104,6 @@ def log_audit(
     enforce_max_size_text(audit_file)
 
 
-def detect_fastapi(cwd: str) -> bool:
-    """Check if the project uses FastAPI by searching dependency files.
-
-    Performs a case-insensitive search for 'fastapi' in pyproject.toml,
-    requirements.txt, and setup.cfg.
-
-    Args:
-        cwd: The project working directory to search in.
-
-    Returns:
-        True if FastAPI is detected in any dependency file, False otherwise.
-    """
-    project_root = Path(cwd)
-    for filename in FASTAPI_DEPENDENCY_FILES:
-        dep_file = project_root / filename
-        if dep_file.is_file():
-            try:
-                content = dep_file.read_text().lower()
-                if "fastapi" in content:
-                    return True
-            except OSError:
-                continue
-    return False
-
-
 def main() -> None:
     try:
         payload = json.loads(sys.stdin.read())
@@ -153,12 +123,7 @@ def main() -> None:
     if not skill_files:
         return
 
-    # Make a mutable copy so conditional skills don't modify the constant
     skill_files = list(skill_files)
-
-    # Conditionally inject FastAPI skill for python-developer agents
-    if agent_type == "python-developer" and detect_fastapi(cwd):
-        skill_files.append(FASTAPI_SKILL)
 
     # Read each skill file — two-tier lookup:
     # 1. Project override: {cwd}/.claude/skills/{filename}

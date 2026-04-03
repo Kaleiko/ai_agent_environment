@@ -44,7 +44,7 @@ def truncate_content(content: str, max_chars: int) -> str:
     # Find the first complete section header to avoid partial messages
     first_header = truncated.find("\n## ")
     if first_header != -1:
-        truncated = truncated[first_header + 1:]
+        truncated = truncated[first_header + 1 :]
     return truncated
 
 
@@ -131,8 +131,12 @@ def get_active_plans(cwd: str) -> str:
 
 
 def log_audit(
-    cwd: str, session_id: str, source: str, injected: bool,
-    sessions_loaded: int = 0, plans_found: int = 0
+    cwd: str,
+    session_id: str,
+    source: str,
+    injected: bool,
+    sessions_loaded: int = 0,
+    plans_found: int = 0,
 ) -> None:
     """Log start event to audit file."""
     audit_dir = Path(cwd) / ".claude" / "logs" / "audit"
@@ -185,7 +189,9 @@ def main() -> None:
         return
 
     # Count what we're injecting for audit
-    session_files = sorted(sessions_dir.glob("*_session.md")) if sessions_dir.is_dir() else []
+    session_files = (
+        sorted(sessions_dir.glob("*_session.md")) if sessions_dir.is_dir() else []
+    )
     plans_dir = Path(cwd) / ".claude" / "plans"
     plan_files = sorted(plans_dir.glob("*.md")) if plans_dir.is_dir() else []
 
@@ -209,7 +215,10 @@ def main() -> None:
     print(json.dumps(result))
 
     log_audit(
-        cwd, session_id, source, injected=True,
+        cwd,
+        session_id,
+        source,
+        injected=True,
         sessions_loaded=len(session_files),
         plans_found=len(plan_files),
     )

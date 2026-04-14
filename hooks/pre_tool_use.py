@@ -42,9 +42,22 @@ DESTRUCTIVE_COMMANDS = {"rm", "mv", "chmod", "chown", "shred", "unlink"}
 FILE_PATH_TOOLS = {"Read", "Write", "Edit", "MultiEdit"}
 
 # Directories outside CWD that are allowed for file path tools
+# NOTE: {CWD}/.claude/ is also allowed — see get_allowed_external_dirs()
 ALLOWED_EXTERNAL_DIRS = [
     os.path.join(os.path.expanduser("~"), ".claude"),
 ]
+
+
+def get_allowed_external_dirs(cwd: str) -> list[str]:
+    """Return all allowed external directories, including {CWD}/.claude/.
+
+    Args:
+        cwd: The current working directory.
+
+    Returns:
+        List of allowed directory paths.
+    """
+    return ALLOWED_EXTERNAL_DIRS + [os.path.join(cwd, ".claude")]
 
 
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -161,17 +174,36 @@ def extract_paths_from_command(command: str) -> list[str]:
 
 
 def resolve_path(path_str: str, cwd: str) -> str:
-    """Resolve a path string to an absolute path relative to cwd."""
+    """Resolve a path string to an absolute, symlink-resolved path relative to cwd.
+
+    Args:
+        path_str: The raw path string (may be relative, contain ~, or have symlinks).
+        cwd: The current working directory to resolve relative paths against.
+
+    Returns:
+        A fully resolved absolute path with symlinks resolved.
+    """
     p = path_str.replace("~", os.path.expanduser("~"))
     if not os.path.isabs(p):
         p = os.path.join(cwd, p)
-    return os.path.normpath(p)
+    return os.path.realpath(p)
 
 
 def is_within_cwd(resolved_path: str, cwd: str) -> bool:
-    """Check if a resolved path is within (or equal to) cwd."""
-    norm_cwd = os.path.normpath(cwd)
-    return resolved_path == norm_cwd or resolved_path.startswith(norm_cwd + os.sep)
+    """Check if a resolved path is within (or equal to) cwd.
+
+    Both paths are resolved via realpath to handle symlinks consistently.
+
+    Args:
+        resolved_path: The fully resolved file path to check.
+        cwd: The current working directory.
+
+    Returns:
+        True if resolved_path is within or equal to cwd.
+    """
+    real_cwd = os.path.realpath(cwd)
+    real_path = os.path.realpath(resolved_path)
+    return real_path == real_cwd or real_path.startswith(real_cwd + os.sep)
 
 
 def check_bash_command(command: str, cwd: str) -> str | None:
@@ -202,13 +234,21 @@ def check_bash_command(command: str, cwd: str) -> str | None:
     return None
 
 
-def is_in_allowed_external_dir(resolved_path: str) -> bool:
-    """Check if a resolved path is within an allowed external directory."""
-    for allowed_dir in ALLOWED_EXTERNAL_DIRS:
-        norm_allowed = os.path.normpath(allowed_dir)
-        if resolved_path == norm_allowed or resolved_path.startswith(
-            norm_allowed + os.sep
-        ):
+def is_in_allowed_external_dir(resolved_path: str, cwd: str = "") -> bool:
+    """Check if a resolved path is within an allowed external directory.
+
+    Args:
+        resolved_path: The fully resolved file path to check.
+        cwd: The current working directory (used to allow {CWD}/.claude/).
+
+    Returns:
+        True if the path is within an allowed external directory.
+    """
+    allowed_dirs = get_allowed_external_dirs(cwd) if cwd else ALLOWED_EXTERNAL_DIRS
+    real_path = os.path.realpath(resolved_path)
+    for allowed_dir in allowed_dirs:
+        real_allowed = os.path.realpath(allowed_dir)
+        if real_path == real_allowed or real_path.startswith(real_allowed + os.sep):
             return True
     return False
 
@@ -224,9 +264,33 @@ def is_env_file(path_str: str) -> bool:
 
 
 def check_env_in_command(command: str) -> str | None:
-    """Check if a Bash command accesses .env files."""
-    # Match .env or .env.* but not .env.sample/.env.example/.env.template/.env.test
-    if re.search(r"\.env\b(?!\.(?:sample|example|template|test)\b)", command):
+    """Check if a Bash command accesses .env files.
+
+    Only matches actual .env file access patterns (e.g., `cat .env`, `source .env`,
+    `cp .env .env.bak`, file paths containing .env). Does NOT match the string ".env"
+    when it appears inside quoted content, heredocs, or echo/printf arguments.
+
+    Args:
+        command: The bash command string to check.
+
+    Returns:
+        A reason string if blocked, or None if allowed.
+    """
+    # First, strip out heredocs, then quoted strings, to avoid false positives.
+    # Remove heredoc content FIRST (before quote stripping mangles the delimiter).
+    # Matches: <<EOF ... EOF, <<'EOF' ... EOF, <<"EOF" ... EOF, <<-EOF ... EOF
+    stripped = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?.*", "", command, flags=re.DOTALL)
+    # Remove single-quoted strings (no interpolation, so safe to strip entirely)
+    stripped = re.sub(r"'[^']*'", "''", stripped)
+    # Remove double-quoted strings
+    stripped = re.sub(r'"[^"]*"', '""', stripped)
+
+    # Safe suffixes that are not secret files
+    safe_suffix = r"(?!\.(?:sample|example|template|test)\b)"
+
+    # Match .env as a file path token — preceded by whitespace, path separator, or start of line
+    # This catches: cat .env, source .env, /path/to/.env, ./.env, cp .env.local foo
+    if re.search(rf"(?:^|[\s/])\.env\b{safe_suffix}", stripped):
         return "Blocked: access to .env files containing secrets is prohibited (use .env.sample instead)"
     return None
 
@@ -267,7 +331,9 @@ def check_file_path_tool(tool_name: str, tool_input: dict, cwd: str) -> str | No
         return "Blocked: access to .env files containing secrets is prohibited (use .env.sample instead)"
 
     resolved = resolve_path(file_path, cwd)
-    if not is_within_cwd(resolved, cwd) and not is_in_allowed_external_dir(resolved):
+    if not is_within_cwd(resolved, cwd) and not is_in_allowed_external_dir(
+        resolved, cwd
+    ):
         return f"Blocked: file path targets outside project directory ({file_path})"
     return None
 

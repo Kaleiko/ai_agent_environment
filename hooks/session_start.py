@@ -65,9 +65,6 @@ def archive_last_session(logs_dir: Path) -> None:
     archived_file = sessions_dir / f"{timestamp}_session.md"
     archived_file.write_text(content)
 
-    # Clear last_session.md so it's fresh for the new session
-    last_session_file.write_text("")
-
 
 def cleanup_old_sessions(sessions_dir: Path) -> None:
     """Keep only the most recent MAX_SESSIONS_TO_KEEP session files."""

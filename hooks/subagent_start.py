@@ -19,6 +19,7 @@ MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 AGENT_SKILLS = {
     "python-developer": ["python-conventions.md"],
     "next-developer": ["next-conventions.md"],
+    "e2e-developer": ["playwright-conventions.md"],
 }
 
 

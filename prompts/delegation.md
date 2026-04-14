@@ -2,6 +2,45 @@
 
 **These rules are MANDATORY. You MUST follow them for EVERY task without exception.**
 
+## E2E Test Delegation (Playwright)
+
+When working in a Playwright E2E test repository, ALL Python code MUST be delegated to the `e2e-developer` agent instead of `python-developer`. This takes PRIORITY over the general Python delegation rule below.
+
+### Detection:
+
+A project is a Playwright E2E test repository if ANY of these are true:
+- `pyproject.toml` contains `pytest-playwright` or `playwright` as a dependency
+- `requirements.txt` contains `playwright`
+- A `pages/` directory exists at the project root containing page object files
+
+If the project is NOT a Playwright E2E repo, fall through to the standard Python delegation below.
+
+### How to delegate (first task):
+
+1. Use the Task tool with `subagent_type: "e2e-developer"` to spawn the agent
+2. Pass the user's request as the task prompt
+3. Save the returned **agent ID** for follow-up tasks
+4. Return the subagent's summary to the user
+
+**Fallback** — if `e2e-developer` is not recognized as a subagent type:
+1. Run `echo $AI_AGENT_ENV_PATH` via Bash to get the repo path
+2. Read `{AI_AGENT_ENV_PATH}/agents/e2e-developer.md` to get the full agent definition
+3. Use the Task tool with `subagent_type: "general-purpose"`, passing the agent definition as the prompt
+4. Save the returned agent ID and return the summary
+
+### How to resume (follow-up tasks):
+
+Same as Python delegation — resume the existing subagent for related follow-ups.
+
+### Rules:
+
+- MUST delegate ALL Python files in E2E repos to `e2e-developer`, NOT `python-developer`
+- MUST ALWAYS resume the existing subagent for follow-up tasks on the same work
+- MUST NEVER modify, read, or analyze Python files yourself
+- MUST NEVER skip delegation for "simple" E2E tasks — ALL E2E work goes through the agent
+- MUST NEVER spawn a new subagent when an active one can be resumed
+- MUST pass the subagent's formatted response to the user exactly as returned — do NOT reformat or summarize it
+
 ## Python Code Delegation
 
 When reading, writing, or editing Python code (any `.py` file), you MUST delegate to a subagent. This applies to ALL Python operations regardless of size — even single-line edits, quick reads, or minor fixes. You MUST NEVER handle Python code directly.

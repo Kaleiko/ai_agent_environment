@@ -1085,3 +1085,99 @@ pytest tests/end-to-end-testing/test_accounts.py -v
 # Run with coverage
 pytest tests/end-to-end-testing/ --cov=src/api --cov-report=term-missing
 ```
+
+## API Route Directory Structure
+
+Group related endpoints under a parent directory with a single parent router. The directory structure MUST mirror the URL path hierarchy. Only the parent router is registered in `main.py`.
+
+### Rules
+
+- MUST group related routes under a parent directory when a domain has multiple sub-resources (e.g., `src/api/v1/billing/` for invoices, payments, credits)
+- The directory and file structure MUST mirror the URL path hierarchy. If the URL is `/api/v1/billing/invoices/`, the file MUST be at `src/api/v1/billing/invoices.py`
+- File names MUST use the snake_case equivalent of the kebab-case URL segment (e.g., `chart_of_accounts.py` for URL `/chart-of-accounts`)
+- The parent `__init__.py` MUST export a single router that includes all sub-routers
+- Each **leaf** sub-resource (one with no children of its own) MUST be its own file (e.g., `invoices.py`, `payments.py`) — NOT its own directory
+- Configuration/settings endpoints within a group MUST go in a `settings.py` file (e.g., `accounting/settings.py` for URL `/accounting/settings/`). This is NOT the project-level `settings.py` used for constants — see Section 1.
+- A `settings.py` file within a route group is a regular route file — it follows all the same rules as any other sub-resource file (e.g., `invoices.py`, `payments.py`). It exists solely because the URL path contains `/settings`. It MUST contain route handlers, NOT configuration values.
+- NEVER confuse route-level `settings.py` files with the project-level `settings.py` for constants. Route-level settings files contain endpoint handlers, NOT configuration values.
+- The parent router MUST carry the group prefix (e.g., `/billing`)
+- Sub-file routers MUST use relative prefixes (e.g., `/invoices`, `/payments`)
+- `main.py` MUST only register parent routers — NEVER individual sub-routers
+- NEVER create a separate directory per endpoint — one file per sub-resource within the group directory
+- Top-level domains that have no sub-resources (e.g., `auth`) MAY remain as a single directory with `routes.py`
+- Nested URL hierarchies MUST be reflected as nested directories (e.g., URL `/settings/access-control/` → directory `src/api/v1/settings/` with file `access_control.py`)
+
+### Deep Nesting (File-to-Directory Promotion)
+
+- A URL segment is a **file** if it is a leaf (no sub-resources) and a **directory** if it has children. This rule applies uniformly at every level of the hierarchy.
+- When a sub-resource gains its own sub-resources, it MUST be promoted from a file to a nested directory with its own `__init__.py` and parent router
+- This applies **recursively at any depth** — the same promotion rule applies whether it is 2 levels deep or 5 levels deep
+- NEVER flatten deep hierarchies into a single file — each URL segment that has children MUST be its own directory
+- NEVER create arbitrary depth limits — the directory-mirrors-URL rule applies at ALL levels
+
+```
+src/api/v1/
+  accounting/                          # /accounting — has children → directory
+    __init__.py                        # Exports accounting_router
+    general_ledger.py                  # /accounting/general-ledger — leaf → file
+    billing/                           # /accounting/billing — has children → directory
+      __init__.py                      # Exports billing_router
+      invoices.py                      # /accounting/billing/invoices — leaf → file
+      accounts_receivable/             # /accounting/billing/accounts-receivable — has children → directory
+        __init__.py                    # Exports accounts_receivable_router
+        aging.py                       # /accounting/billing/accounts-receivable/aging — leaf → file
+        collections.py                 # /accounting/billing/accounts-receivable/collections — leaf → file
+```
+
+### Example Structure
+
+```
+src/api/v1/
+  auth/                      # Single-resource domain — no sub-grouping needed
+    __init__.py
+    routes.py                # Router prefix: /auth
+  billing/                   # Multi-resource domain — grouped under parent
+    __init__.py              # Exports billing_router (includes all sub-routers)
+    invoices.py              # Router prefix: /invoices      → URL: /billing/invoices
+    payments.py              # Router prefix: /payments      → URL: /billing/payments
+    credits.py               # Router prefix: /credits       → URL: /billing/credits
+    settings.py              # Router prefix: /settings      → URL: /billing/settings
+```
+
+### Example Parent `__init__.py`
+
+```python
+from fastapi import APIRouter
+
+from .invoices import router as invoices_router
+from .payments import router as payments_router
+from .credits import router as credits_router
+from .settings import router as settings_router
+
+billing_router = APIRouter(prefix="/billing", tags=["billing"])
+billing_router.include_router(invoices_router)
+billing_router.include_router(payments_router)
+billing_router.include_router(credits_router)
+billing_router.include_router(settings_router)
+```
+
+### Example Sub-Resource File
+
+```python
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+@router.get("/")
+async def list_invoices():
+    ...
+```
+
+### Example main.py Registration
+
+```python
+from src.api.v1.billing import billing_router
+
+application.include_router(billing_router, prefix=API_V1_PREFIX)
+# Result: /api/v1/billing/invoices/, /api/v1/billing/payments/, etc.
+```

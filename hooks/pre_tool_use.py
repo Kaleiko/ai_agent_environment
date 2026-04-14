@@ -218,7 +218,8 @@ def is_env_file(path_str: str) -> bool:
     basename = os.path.basename(path_str)
     safe_suffixes = (".sample", ".example", ".template", ".test")
     return basename == ".env" or (
-        basename.startswith(".env.") and not any(basename.endswith(s) for s in safe_suffixes)
+        basename.startswith(".env.")
+        and not any(basename.endswith(s) for s in safe_suffixes)
     )
 
 
@@ -230,11 +231,36 @@ def check_env_in_command(command: str) -> str | None:
     return None
 
 
-def check_file_path_tool(tool_input: dict, cwd: str) -> str | None:
-    """Check Read/Write/Edit tool file_path against CWD and .env protection."""
+def is_full_log_file(path_str: str) -> bool:
+    """Check if a path targets full_log.md.
+
+    Args:
+        path_str: The file path string to check.
+
+    Returns:
+        True if the path refers to full_log.md.
+    """
+    return os.path.basename(path_str) == "full_log.md" or "full_log.md" in path_str
+
+
+def check_file_path_tool(tool_name: str, tool_input: dict, cwd: str) -> str | None:
+    """Check Read/Write/Edit tool file_path against CWD, .env, and full_log protection.
+
+    Args:
+        tool_name: The name of the tool being invoked.
+        tool_input: The tool's input parameters.
+        cwd: The current working directory.
+
+    Returns:
+        A reason string if blocked, or None if allowed.
+    """
     file_path = tool_input.get("file_path", "")
     if not file_path:
         return None
+
+    # Block reading full_log.md (any tool that reads)
+    if tool_name == "Read" and is_full_log_file(file_path):
+        return "Blocked: reading full_log.md is prohibited — this file is write-only for the session hook"
 
     # Block .env file access
     if is_env_file(file_path):
@@ -268,7 +294,7 @@ def main() -> None:
         command = tool_input.get("command", "")
         reason = check_env_in_command(command) or check_bash_command(command, cwd)
     elif tool_name in FILE_PATH_TOOLS:
-        reason = check_file_path_tool(tool_input, cwd)
+        reason = check_file_path_tool(tool_name, tool_input, cwd)
     else:
         return
 

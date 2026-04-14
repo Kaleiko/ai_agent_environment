@@ -54,6 +54,7 @@ $AI_AGENT_ENV_PATH/ (Repo — source of truth)
 Project .claude/ (Per-project — auto-created by hooks)
 ├── logs/                  # Created automatically by hooks
 │   ├── last_session.md
+│   ├── full_log.md        # Append-only full conversation log (FULL_LOG=1)
 │   ├── security/
 │   ├── audit/
 │   └── agents/
@@ -167,7 +168,7 @@ Hooks provide deterministic security enforcement and logging. They are registere
 | `post_tool_use_failure.py` | `PostToolUseFailure` | Logs tool failures for debugging |
 | `subagent_stop.py` | `SubagentStop` | Captures subagent transcripts to per-agent log directories |
 | `subagent_start.py` | `SubagentStart` | Injects skill files as context when mapped subagents spawn |
-| `session_stop.py` | `Stop` | Parses session transcript into condensed chat log (20K char limit) |
+| `session_stop.py` | `Stop` | Parses session transcript into condensed chat log (20K char limit); optionally appends full log |
 | `session_start.py` | `SessionStart` | Archives previous session, injects up to 2 sessions of context + active plans |
 
 ### Security hook (`pre_tool_use`)
@@ -175,6 +176,7 @@ Hooks provide deterministic security enforcement and logging. They are registere
 - **Tier 1 — Hard block**: Catastrophic commands always blocked (`rm -rf /`, `rm -rf ~`, `mkfs`, `dd if=`, `git push --force` to main/master)
 - **Tier 2 — CWD enforcement**: Destructive commands targeting paths outside the project directory are blocked
 - **`.env` protection**: Access to `.env` files is blocked across all tools
+- **`full_log.md` protection**: Claude is blocked from reading `.claude/logs/full_log.md` to prevent self-referential loops
 
 ### Skill injection hook (`subagent_start`)
 
@@ -195,12 +197,31 @@ On session stop, the current conversation is saved to `last_session.md` (up to 2
 
 This gives the agent 2 sessions of context to recover from, even if a session was closed early.
 
+### Full log mode
+
+When the `FULL_LOG` environment variable is set, the `session_stop` hook appends all conversation messages to `.claude/logs/full_log.md` in addition to the normal `last_session.md` behavior.
+
+```bash
+FULL_LOG=1 claude --dangerously-skip-permissions
+```
+
+Key differences from `last_session.md`:
+
+- **Append-only** — content accumulates across sessions, separated by session headers
+- **No size cap** — unlike `last_session.md` (20K char limit), `full_log.md` grows without truncation
+- **Deduplicated** — a state file (`.claude/logs/.full_log_state.json`) tracks the line offset so reprocessing the same session does not duplicate content
+- **Protected** — Claude is blocked from reading `full_log.md` (enforced by `pre_tool_use.py`) to prevent self-referential behavior
+
+This is useful for maintaining a complete audit trail of all conversations within a project.
+
 ### Log structure
 
 ```
 .claude/
 ├── logs/
 │   ├── last_session.md                  # Current/most recent session chat log
+│   ├── full_log.md                      # Append-only full log (when FULL_LOG is set)
+│   ├── .full_log_state.json             # Line offset tracker for full_log dedup
 │   ├── sessions/                        # Archived previous sessions (max 2 kept)
 │   │   ├── 2026-03-29T14-30-00_session.md
 │   │   └── 2026-03-30T10-15-00_session.md

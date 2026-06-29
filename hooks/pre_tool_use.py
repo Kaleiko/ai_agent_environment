@@ -19,7 +19,7 @@ TIER1_PATTERNS = [
     # Wipe root / home
     r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?(-[a-zA-Z]*r[a-zA-Z]*\s+|--recursive\s+)?\s*/\s*$",
     r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)?(-[a-zA-Z]*f[a-zA-Z]*\s+)?\s*/\s*$",
-    r"\brm\s+-rf\s+/\b",
+    r"\brm\s+-rf\s+/(?:[*\s;|&]|$)",
     r"\brm\s+-rf\s+~",
     r"\brm\s+-rf\s+\$HOME\b",
     r"\brm\s+-rf\s+\$\{HOME\}",
@@ -46,6 +46,11 @@ FILE_PATH_TOOLS = {"Read", "Write", "Edit", "MultiEdit"}
 ALLOWED_EXTERNAL_DIRS = [
     os.path.join(os.path.expanduser("~"), ".claude"),
 ]
+
+# Add AI agent environment if configured
+_ai_env = os.environ.get("AI_AGENT_ENV_PATH")
+if _ai_env and os.path.isdir(_ai_env):
+    ALLOWED_EXTERNAL_DIRS.append(_ai_env)
 
 
 def get_allowed_external_dirs(cwd: str) -> list[str]:
@@ -284,6 +289,11 @@ def check_env_in_command(command: str) -> str | None:
     stripped = re.sub(r"'[^']*'", "''", stripped)
     # Remove double-quoted strings
     stripped = re.sub(r'"[^"]*"', '""', stripped)
+
+    # Allow listing .env files (ls is read-only)
+    parts = stripped.split()
+    if parts and os.path.basename(parts[0]) == "ls":
+        return None
 
     # Safe suffixes that are not secret files
     safe_suffix = r"(?!\.(?:sample|example|template|test)\b)"

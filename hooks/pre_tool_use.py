@@ -13,6 +13,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from hook_paths import get_project_root
+
 # --- Tier 1: Hard-blocked patterns (catastrophic, always blocked) ---
 
 TIER1_PATTERNS = [
@@ -47,10 +49,15 @@ ALLOWED_EXTERNAL_DIRS = [
     os.path.join(os.path.expanduser("~"), ".claude"),
 ]
 
-# Add AI agent environment if configured
-_ai_env = os.environ.get("AI_AGENT_ENV_PATH")
-if _ai_env and os.path.isdir(_ai_env):
-    ALLOWED_EXTERNAL_DIRS.append(_ai_env)
+# Allow the AI agent environment repo. Derived from THIS hook's own location so
+# it needs no environment variable at runtime and survives the repo being moved.
+# This file lives at <repo>/hooks/pre_tool_use.py, so the repo root is parent.parent.
+# realpath() makes it physical (symlink-resolved) to match the comparisons below,
+# which realpath both operands — critical when the repo is reached via a symlink
+# (e.g. ~/Dropbox -> ~/Library/CloudStorage/Dropbox).
+REPO_ROOT = os.path.realpath(str(Path(__file__).resolve().parent.parent))
+if os.path.isdir(REPO_ROOT):
+    ALLOWED_EXTERNAL_DIRS.append(REPO_ROOT)
 
 
 def get_allowed_external_dirs(cwd: str) -> list[str]:
@@ -84,13 +91,19 @@ def enforce_max_size_text(file_path: Path) -> None:
 
 
 def get_cwd(payload: dict) -> str:
-    """Get the working directory from the hook payload."""
+    """Get the live working directory from the hook payload.
+
+    This is the tool's real working directory and is used ONLY for the security
+    checks that compare tool file paths against the project boundary. Log
+    destinations use get_project_root() instead so they stay anchored even when
+    a tool changes directory mid-session.
+    """
     return payload.get("cwd", os.getcwd())
 
 
-def log_audit(cwd: str, payload: dict) -> None:
+def log_audit(project_root: str, payload: dict) -> None:
     """Append the full tool call payload to .claude/logs/audit/pre_tool_use.jsonl."""
-    audit_dir = Path(cwd) / ".claude" / "logs" / "audit"
+    audit_dir = Path(project_root) / ".claude" / "logs" / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
     audit_file = audit_dir / "pre_tool_use.jsonl"
 
@@ -104,7 +117,7 @@ def log_audit(cwd: str, payload: dict) -> None:
 
 
 def log_blocked(
-    cwd: str,
+    project_root: str,
     tool_name: str,
     tool_input: dict,
     reason: str,
@@ -112,7 +125,7 @@ def log_blocked(
     agent_id: str | None = None,
 ) -> None:
     """Append blocked tool call details to .claude/logs/security/blocked.jsonl."""
-    security_dir = Path(cwd) / ".claude" / "logs" / "security"
+    security_dir = Path(project_root) / ".claude" / "logs" / "security"
     security_dir.mkdir(parents=True, exist_ok=True)
     blocked_file = security_dir / "blocked.jsonl"
 
@@ -348,6 +361,75 @@ def check_file_path_tool(tool_name: str, tool_input: dict, cwd: str) -> str | No
     return None
 
 
+def evaluate_security(tool_name: str, tool_input: dict, cwd: str) -> str | None:
+    """Run the security checks for a tool call and return a deny reason or None.
+
+    Only Bash and file-path tools are gated; every other tool is allowed
+    (returns None). Any exception raised here is intentionally NOT swallowed —
+    the caller treats a crash in this logic as a signal to fail closed (block),
+    so a latent bug can never silently allow a dangerous command through.
+
+    Args:
+        tool_name: The name of the tool being invoked.
+        tool_input: The tool's input parameters.
+        cwd: The tool's live working directory (used for project-boundary checks).
+
+    Returns:
+        A reason string if the call must be blocked, or None to allow it.
+    """
+    if tool_name == "Bash":
+        command = tool_input.get("command", "")
+        return check_env_in_command(command) or check_bash_command(command, cwd)
+    if tool_name in FILE_PATH_TOOLS:
+        return check_file_path_tool(tool_name, tool_input, cwd)
+    return None
+
+
+def log_audit_safe(project_root: str, payload: dict) -> None:
+    """Audit-log a tool call, swallowing any failure.
+
+    Logging MUST never prevent a security decision from being emitted, so an
+    unwritable log directory is caught here rather than allowed to abort main().
+
+    Args:
+        project_root: Directory to anchor the .claude/ log tree to.
+        payload: The full tool call payload to record.
+    """
+    try:
+        log_audit(project_root, payload)
+    except Exception as exc:
+        # Logging must never break the hook or suppress a security decision.
+        print(f"pre_tool_use: audit log failed: {exc}", file=sys.stderr)
+
+
+def log_blocked_safe(
+    project_root: str,
+    tool_name: str,
+    tool_input: dict,
+    reason: str,
+    agent_type: str | None,
+    agent_id: str | None,
+) -> None:
+    """Record a blocked tool call, swallowing any failure.
+
+    A failure to write the blocked-log MUST NOT stop the deny decision from
+    being printed, so the write is isolated here.
+
+    Args:
+        project_root: Directory to anchor the .claude/ log tree to.
+        tool_name: The name of the blocked tool.
+        tool_input: The blocked tool's input parameters.
+        reason: The human-readable block reason.
+        agent_type: The subagent type, if any.
+        agent_id: The subagent id, if any.
+    """
+    try:
+        log_blocked(project_root, tool_name, tool_input, reason, agent_type, agent_id)
+    except Exception as exc:
+        # Logging must never break the hook or suppress a security decision.
+        print(f"pre_tool_use: blocked log failed: {exc}", file=sys.stderr)
+
+
 def main() -> None:
     try:
         payload = json.loads(sys.stdin.read())
@@ -357,27 +439,37 @@ def main() -> None:
 
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {})
+    # Live cwd drives the security checks; project root anchors the logs.
     cwd = get_cwd(payload)
+    project_root = get_project_root(payload)
     agent_type = payload.get("agent_type")
     agent_id = payload.get("agent_id")
 
-    # Audit log: capture every tool call payload
-    log_audit(cwd, payload)
+    # Security evaluation runs FIRST, before any logging, so a broken or
+    # unwritable log directory can never suppress a deny. A crash inside the
+    # check logic itself fails CLOSED (block) rather than silently allowing.
+    try:
+        reason = evaluate_security(tool_name, tool_input, cwd)
+    except Exception as exc:
+        # Fail CLOSED: an unexpected crash in the security logic blocks the call
+        # rather than silently allowing a potentially dangerous command through.
+        reason = (
+            "Blocked: pre_tool_use security check errored and is failing closed "
+            f"({tool_name}: {exc})"
+        )
+        print(
+            f"pre_tool_use: security check crashed, failing closed: {exc}",
+            file=sys.stderr,
+        )
 
-    reason = None
-
-    if tool_name == "Bash":
-        command = tool_input.get("command", "")
-        reason = check_env_in_command(command) or check_bash_command(command, cwd)
-    elif tool_name in FILE_PATH_TOOLS:
-        reason = check_file_path_tool(tool_name, tool_input, cwd)
-    else:
-        return
+    # Audit log every tool call — best effort, must never suppress a deny.
+    log_audit_safe(project_root, payload)
 
     if reason:
-        log_blocked(cwd, tool_name, tool_input, reason, agent_type, agent_id)
-        result = deny(reason)
-        print(json.dumps(result))
+        log_blocked_safe(
+            project_root, tool_name, tool_input, reason, agent_type, agent_id
+        )
+        print(json.dumps(deny(reason)))
 
 
 if __name__ == "__main__":

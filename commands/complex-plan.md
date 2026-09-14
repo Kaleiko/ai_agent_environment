@@ -45,7 +45,7 @@ Do NOT proceed to Phase 3 until the user selects "Approved."
 
 ## Phase 3: PLAN (Parallel Subagents)
 
-Spawn one `plan-explorer` subagent PER codebase, all in parallel. For each, use the Task tool:
+Spawn one `plan-explorer` subagent PER codebase, all in parallel. For each, use the `Agent` tool:
 
 ```
 subagent_type: "Plan"
@@ -112,7 +112,7 @@ This phase is a loop between the critic and the planners. The loop continues unt
 
 ### Step 4a: CRITIC REVIEW
 
-Spawn a single `plan-critic` subagent using the Task tool:
+Spawn a single `plan-critic` subagent using the `Agent` tool:
 
 ```
 subagent_type: "Plan"
@@ -191,7 +191,7 @@ After ALL flagged planners have produced revised plans, go back to **Step 4a** w
 
 ## Phase 5: SYNTHESIZE (Single Subagent)
 
-Spawn a single `plan-synthesizer` subagent using the Task tool. This phase runs ONLY after the critic has approved all plans.
+Spawn a single `plan-synthesizer` subagent using the `Agent` tool. This phase runs ONLY after the critic has approved all plans.
 
 ```
 subagent_type: "Plan"

@@ -38,6 +38,7 @@ $AI_AGENT_ENV_PATH/ (Repo — source of truth)
 ├── scripts/
 │   └── merge_global_settings.py  # Safely merges hooks into settings.json
 ├── hooks/                 # Run directly from repo via $AI_AGENT_ENV_PATH
+│   ├── hook_paths.py       # Shared helper: resolves the stable project root for logs
 │   ├── pre_tool_use.py
 │   ├── permission_request.py
 │   ├── post_tool_use_failure.py
@@ -167,6 +168,7 @@ Hooks provide deterministic security enforcement and logging. They are registere
 | `permission_request.py` | `PermissionRequest` | Auto-allows read-only operations, reducing permission prompts |
 | `post_tool_use_failure.py` | `PostToolUseFailure` | Logs tool failures for debugging |
 | `subagent_stop.py` | `SubagentStop` | Captures subagent transcripts to per-agent log directories |
+| `hook_paths.py` | *(shared module)* | Project-root resolution and per-agent log directory naming |
 | `subagent_start.py` | `SubagentStart` | Injects skill files as context when mapped subagents spawn |
 | `session_stop.py` | `Stop` | Parses session transcript into condensed chat log (20K char limit); optionally appends full log |
 | `session_start.py` | `SessionStart` | Archives previous session, injects up to 2 sessions of context + active plans |
@@ -177,14 +179,87 @@ Hooks provide deterministic security enforcement and logging. They are registere
 - **Tier 2 — CWD enforcement**: Destructive commands targeting paths outside the project directory are blocked
 - **`.env` protection**: Access to `.env` files is blocked across all tools
 - **`full_log.md` protection**: Claude is blocked from reading `.claude/logs/full_log.md` to prevent self-referential loops
+- **Fail closed**: Security checks run before any logging, and a crash in the check logic (or an unwritable log directory) blocks the call rather than silently allowing it
+
+### Agent log directory naming
+
+`subagent_start` records an agent's log directory name in `.agent_map.json` and
+`subagent_stop` creates the directory, so both derive the name from one implementation
+in `hook_paths.derive_agent_dir_name()` — if they disagreed, the mapping would silently
+break. The name is `{agent_type}-{N}`, where `N` continues from the highest number
+already present in the map or on disk.
+
+The agent type comes from the hook payload, so it is checked against a safe-name pattern
+before becoming a path component. An empty or unsafe type (`""`, `../../etc/passwd`)
+becomes `unknown-{N}` rather than steering directory creation; an empty type previously
+produced directories literally named `-18`, `-19`, and so on. Existing directories and
+map entries are untouched — an agent already in the map keeps the directory it has,
+legacy `-NN` names included — and safe types are passed through unchanged, so normal
+names and numbering are exactly as before.
+
+Sanitising only affects the path. The raw payload value is still recorded as `agent_type`
+in both `subagent_start.jsonl` and `summary.jsonl`; when substitution changed the name,
+the record also carries `agent_dir_name` (start) or `agent_dir` (stop) so the two can be
+matched up.
+
+All hooks anchor their log directories to a stable project root resolved by `hook_paths.get_project_root()` — `CLAUDE_PROJECT_DIR` if set, else the payload `cwd`, else the process cwd. This keeps logs under `<project>/.claude/logs/` even when a tool changes the working directory mid-session (e.g. a `cd` inside a Bash command). The security checks themselves still use the tool's live working directory.
 
 ### Skill injection hook (`subagent_start`)
 
-Two-tier skill lookup:
-1. **Project override**: `{cwd}/.claude/skills/{filename}` (if it exists)
-2. **Repo default**: `$AI_AGENT_ENV_PATH/skills/{filename}`
+Two-tier lookup, used for both skill files and agent definitions:
+1. **Project override**: `{cwd}/.claude/skills/{filename}` — or `{cwd}/.claude/agents/{type}.md`
+2. **Repo default**: `$AI_AGENT_ENV_PATH/skills/{filename}` — or `$AI_AGENT_ENV_PATH/agents/{type}.md`
 
-This lets projects override conventions when needed while defaulting to the repo.
+This lets projects override conventions, and the agent definitions that select them,
+while defaulting to the repo.
+
+**The `skills:` frontmatter in `agents/<type>.md` is the source of truth** for which
+skills an agent gets. Adding a skill there takes effect with no change to the hook.
+Names may be written with or without the `.md` suffix, as a block sequence or as a
+one-line `skills: [a, b]`. Resolution order:
+
+1. Agent definition found with a `skills:` key → inject exactly those skills
+2. Agent definition found with **no** `skills:` key → inject nothing (this is what
+   `plan-critic`, `plan-explorer`, and `plan-synthesizer` rely on)
+3. Agent definition missing, unreadable, or without a frontmatter block → fall back to
+   the `AGENT_SKILLS` dict in the hook, so a broken file degrades to the old behaviour
+   rather than silently injecting nothing
+
+The audit record names the source in `skills_source` (`agent_frontmatter`,
+`agent_frontmatter_no_skills`, or `agent_skills_fallback`) together with the
+`agent_definition` path used. These fields are omitted in exactly one case — the
+frontmatter was authoritative **and** it agrees with `AGENT_SKILLS` — so any
+disagreement between the two is always visible. A divergence also logs
+`skills_divergence` with both lists.
+
+The agent type comes from the payload and skill names come from a file a project can
+override, so both are checked against a safe-name pattern before being joined onto a
+lookup directory.
+
+**Agent type resolution** — the spawning agent's type is read from `agent_type`, falling
+back through `subagent_type`, `agentType`, `subagentType`, `agent_name`, `agentName`,
+`name`, and `type`, then the same keys nested inside `agent`, `subagent`, `tool_input`,
+`toolInput`, `params`, or `input`. An empty string counts as absent. When the type comes
+from anything other than `agent_type`, the audit record names the key in `resolved_from`.
+
+**Never fails silently** — every invocation writes a line to `subagent_start.jsonl`,
+including the ones that inject nothing. Non-injecting outcomes carry a `note`:
+
+| `note` | Meaning |
+|--------|---------|
+| *(absent)* | Normal injection, or a mapped type whose skill files were missing |
+| `unmapped_agent_type` | Type resolved but has no entry in `AGENT_SKILLS` |
+| `no_skills_declared` | Agent definition found, but it declares no `skills:` |
+| `agent_type_unresolved` | No key carried a type — see `unresolved_payload_keys` |
+| `payload_not_decodable` | stdin was not a JSON object |
+
+**Unresolved fallback** — when no agent type can be resolved the hook does not guess a
+skill (`python-conventions` and `playwright-conventions` both claim `**/*.py`). It emits
+`additionalContext` instructing the agent to read the right conventions file itself,
+listing each one's absolute path, `globs`, and `description`. That listing enumerates
+the skills directories themselves, so a skill no agent maps to is still offered. The audit record captures
+`unresolved_payload_keys` and a size-capped `unresolved_payload` with transcript-, prompt-,
+and content-like values redacted, so the next spawn reveals what the field is now called.
 
 ### Session continuity
 
@@ -235,7 +310,7 @@ This is useful for maintaining a complete audit trail of all conversations withi
 │   │   ├── session_start.jsonl          # Session start events
 │   │   └── subagent_start.jsonl         # Subagent skill injection events
 │   └── agents/
-│       ├── .agent_map.json              # agent_id → directory mapping
+│       ├── .agent_map.json              # agent_id → directory mapping (shared by both subagent hooks)
 │       └── python-developer-1/
 │           ├── transcript.jsonl         # Continuous transcript log
 │           └── summary.jsonl            # Structured stop events

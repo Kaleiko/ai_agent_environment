@@ -5,10 +5,11 @@ Logs all tool failures to .claude/logs/audit/tool_failures.jsonl
 """
 
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hook_paths import get_project_root
 
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -33,9 +34,10 @@ def main() -> None:
     except json.JSONDecodeError:
         return
 
-    cwd = payload.get("cwd", os.getcwd())
+    # Anchor logs to the stable project root, not the tool's live cwd.
+    project_root = get_project_root(payload)
 
-    audit_dir = Path(cwd) / ".claude" / "logs" / "audit"
+    audit_dir = Path(project_root) / ".claude" / "logs" / "audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
     log_file = audit_dir / "tool_failures.jsonl"
 

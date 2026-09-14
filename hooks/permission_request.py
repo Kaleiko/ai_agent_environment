@@ -12,6 +12,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from hook_paths import get_project_root
+
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Tools that are always safe (read-only)
@@ -134,7 +136,11 @@ def is_safe_bash(command: str) -> bool:
             continue
 
         # pip/pip3 read-only subcommands
-        if cmd in ("pip", "pip3") and len(parts) >= 2 and parts[1] in SAFE_PIP_SUBCOMMANDS:
+        if (
+            cmd in ("pip", "pip3")
+            and len(parts) >= 2
+            and parts[1] in SAFE_PIP_SUBCOMMANDS
+        ):
             continue
 
         # Not recognized as safe
@@ -150,7 +156,8 @@ def main() -> None:
         return
 
     tool_name = payload.get("tool_name", "")
-    cwd = payload.get("cwd", os.getcwd())
+    # Anchor logs to the stable project root, not the tool's live cwd.
+    cwd = get_project_root(payload)
 
     # Always allow read-only tools
     if tool_name in ALWAYS_ALLOW_TOOLS:

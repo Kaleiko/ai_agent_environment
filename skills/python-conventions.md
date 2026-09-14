@@ -395,7 +395,7 @@ When creating a new Python project, MUST use this structure. When working in an 
 ## Makefile (Docker Projects)
 
 - MUST create a `Makefile` in the project root for any project that uses Docker
-- MUST use the template at `$AI_AGENT_ENV_PATH/templates/Makefile.docker` as the starting point — read it and replace `{container_name}` with the project's actual container name
+- MUST use the template at `{{AI_AGENT_ENV_PATH}}/templates/Makefile.docker` as the starting point — read it and replace `{container_name}` with the project's actual container name
 - MUST include AT MINIMUM these targets: `attach`, `build`, `bash`, `down`, `help`, `logs`, `restart`
 - MUST add a comment above each target describing what it does (format: `# make <target> - <description>`)
 - MUST list all targets in `.PHONY` at the top of the file

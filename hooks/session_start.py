@@ -9,10 +9,11 @@ Logs start events to .claude/logs/audit/session_start.jsonl.
 """
 
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hook_paths import get_project_root
 
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_RECENT_SESSION_CHARS = 15_000
@@ -161,7 +162,8 @@ def main() -> None:
 
     session_id = payload.get("session_id", "unknown")
     source = payload.get("source", "")
-    cwd = payload.get("cwd", os.getcwd())
+    # Anchor logs, session archive, and plan lookup to the stable project root.
+    cwd = get_project_root(payload)
 
     # Only inject on fresh startup, not resume/clear/compact
     if source != "startup":

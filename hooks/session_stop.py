@@ -16,6 +16,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from hook_paths import get_project_root
+
 MAX_CHAT_CHARS = 20_000
 MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 FULL_LOG_STATE_FILENAME = ".full_log_state.json"
@@ -290,7 +292,8 @@ def main() -> None:
 
     session_id = payload.get("session_id", "unknown")
     transcript_path = payload.get("transcript_path", "")
-    cwd = payload.get("cwd", os.getcwd())
+    # Anchor logs to the stable project root, not the tool's live cwd.
+    cwd = get_project_root(payload)
 
     # Parse transcript into condensed chat log
     chat_log = ""

@@ -47,37 +47,57 @@ def test_tier1_rm_rf_allows_project_paths() -> None:
         assert result is None, f"Should NOT block: {cmd} (got: {result})"
 
 
-def test_allowed_external_dirs_includes_ai_env() -> None:
-    """AI_AGENT_ENV_PATH is added to allowed external dirs when set and valid.
+def test_allowed_external_dirs_includes_repo_root() -> None:
+    """The repo root (derived from __file__, not the env var) is an allowed dir.
 
     Args: None
 
     Returns: None
     """
-    # The module-level check already ran at import time with the real env var.
-    # Verify the current AI_AGENT_ENV_PATH is in the list if it's set.
-    ai_env = os.environ.get("AI_AGENT_ENV_PATH")
-    if ai_env and os.path.isdir(ai_env):
-        assert ai_env in pre_tool_use.ALLOWED_EXTERNAL_DIRS, (
-            f"AI_AGENT_ENV_PATH ({ai_env}) should be in ALLOWED_EXTERNAL_DIRS"
-        )
+    # REPO_ROOT is computed at import time from the hook's own location, so this
+    # passes with AI_AGENT_ENV_PATH completely unset.
+    repo_root = pre_tool_use.REPO_ROOT
+    assert repo_root in pre_tool_use.ALLOWED_EXTERNAL_DIRS, (
+        f"Repo root ({repo_root}) should be in ALLOWED_EXTERNAL_DIRS"
+    )
 
 
 def test_allowed_external_dirs_file_path_check() -> None:
-    """File paths within AI_AGENT_ENV_PATH are allowed by is_in_allowed_external_dir.
+    """File paths within the repo root are allowed by is_in_allowed_external_dir.
 
     Args: None
 
     Returns: None
     """
-    ai_env = os.environ.get("AI_AGENT_ENV_PATH")
-    if not ai_env or not os.path.isdir(ai_env):
-        return  # Skip if not configured
-
-    test_path = os.path.join(ai_env, "skills", "python-conventions.md")
+    repo_root = pre_tool_use.REPO_ROOT
+    test_path = os.path.join(repo_root, "skills", "python-conventions.md")
     resolved = os.path.realpath(test_path)
     assert pre_tool_use.is_in_allowed_external_dir(resolved, "/some/other/project"), (
-        f"Path within AI_AGENT_ENV_PATH should be allowed: {test_path}"
+        f"Path within the repo root should be allowed: {test_path}"
+    )
+
+
+def test_symlinked_repo_path_treated_as_inside_repo(tmp_path) -> None:
+    """A file reached via a symlink to the repo is recognized as inside the repo.
+
+    Guards the physical-path (realpath) consistency fix: when the repo is reached
+    through a symlink (e.g. ~/Dropbox -> ~/Library/CloudStorage/Dropbox), a path
+    resolved through the symlink must still match the physical REPO_ROOT.
+
+    Args:
+        tmp_path: Pytest-provided temporary directory.
+
+    Returns: None
+    """
+    repo_root = pre_tool_use.REPO_ROOT
+    link = tmp_path / "repo_link"
+    link.symlink_to(repo_root)
+
+    # Access a real repo file through the symlinked path.
+    symlinked_file = str(link / "skills" / "python-conventions.md")
+    resolved = pre_tool_use.resolve_path(symlinked_file, str(tmp_path))
+    assert pre_tool_use.is_in_allowed_external_dir(resolved, "/some/other/project"), (
+        f"Symlinked repo path should resolve to inside the repo: {symlinked_file}"
     )
 
 
@@ -125,8 +145,8 @@ if __name__ == "__main__":
     test_tier1_rm_rf_allows_project_paths()
     print("PASS: test_tier1_rm_rf_allows_project_paths")
 
-    test_allowed_external_dirs_includes_ai_env()
-    print("PASS: test_allowed_external_dirs_includes_ai_env")
+    test_allowed_external_dirs_includes_repo_root()
+    print("PASS: test_allowed_external_dirs_includes_repo_root")
 
     test_allowed_external_dirs_file_path_check()
     print("PASS: test_allowed_external_dirs_file_path_check")

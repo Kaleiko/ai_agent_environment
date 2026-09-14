@@ -4,15 +4,19 @@
 Captures subagent transcripts into per-agent log directories when agents finish.
 Logs to .claude/logs/agents/{agent_type}-{N}/
 Uses .agent_map.json to map agent_id → directory name (shared with subagent_start).
+
+This hook is what actually creates the directory, so the agent type -- which
+arrives in the payload -- is sanitised before it becomes a path component. The
+derivation lives in hook_paths so subagent_start computes the identical name.
 """
 
 import json
 import os
-import re
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from hook_paths import agent_dir_prefix, derive_agent_dir_name, get_project_root
 
 
 def get_agent_map(agents_dir: Path) -> dict:
@@ -33,35 +37,27 @@ def save_agent_map(agents_dir: Path, agent_map: dict) -> None:
     map_file.write_text(json.dumps(agent_map, indent=2) + "\n")
 
 
-def next_agent_number(agents_dir: Path, agent_type: str, agent_map: dict) -> int:
-    """Find the next available number for this agent type (checks map + dirs)."""
-    pattern = re.compile(rf"^{re.escape(agent_type)}-(\d+)$")
-    max_num = 0
-    # Check existing map entries (dirs may not exist yet)
-    for dir_name in agent_map.values():
-        m = pattern.match(dir_name)
-        if m:
-            max_num = max(max_num, int(m.group(1)))
-    # Also check actual directories (in case map was lost/reset)
-    if agents_dir.is_dir():
-        for entry in agents_dir.iterdir():
-            if entry.is_dir():
-                m = pattern.match(entry.name)
-                if m:
-                    max_num = max(max_num, int(m.group(1)))
-    return max_num + 1
-
-
 def resolve_agent_dir(agents_dir: Path, agent_id: str, agent_type: str) -> Path:
-    """Get or create the directory for this agent, using the map for consistency."""
+    """Get or create the directory for this agent, using the map for consistency.
+
+    An agent already in the map keeps the directory it was given, so existing
+    directories -- including the "-18" style names an empty type used to produce
+    -- keep resolving exactly as before.
+
+    Args:
+        agents_dir: The ``.claude/logs/agents`` directory.
+        agent_id: The finishing agent's id.
+        agent_type: The agent type from the payload, possibly empty or unsafe.
+
+    Returns:
+        The directory this agent's logs belong in, always inside ``agents_dir``.
+    """
     agent_map = get_agent_map(agents_dir)
 
     if agent_id in agent_map:
-        return agents_dir / agent_map[agent_id]
+        return agents_dir / str(agent_map[agent_id])
 
-    # Assign next number
-    num = next_agent_number(agents_dir, agent_type, agent_map)
-    dir_name = f"{agent_type}-{num}"
+    dir_name = derive_agent_dir_name(agents_dir, agent_type, agent_map)
     agent_map[agent_id] = dir_name
     save_agent_map(agents_dir, agent_map)
     return agents_dir / dir_name
@@ -76,9 +72,10 @@ def main() -> None:
     agent_id = payload.get("agent_id", "unknown")
     agent_type = payload.get("agent_type", "unknown")
     transcript_path = payload.get("agent_transcript_path", "")
-    cwd = payload.get("cwd", os.getcwd())
+    # Anchor logs to the stable project root, not the tool's live cwd.
+    project_root = get_project_root(payload)
 
-    agents_dir = Path(cwd) / ".claude" / "logs" / "agents"
+    agents_dir = Path(project_root) / ".claude" / "logs" / "agents"
     log_dir = resolve_agent_dir(agents_dir, agent_id, agent_type)
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,14 +85,18 @@ def main() -> None:
         with open(transcript_path, "r") as src, open(transcript_file, "a") as dst:
             dst.write(src.read())
 
-    # Append structured summary entry
+    # Append structured summary entry. The raw agent_type is recorded whatever it
+    # was; the directory name is named only when sanitising had to change it, so
+    # the original value is never lost to the substitution.
     summary_file = log_dir / "summary.jsonl"
     entry = {
         "_timestamp": datetime.now(timezone.utc).isoformat(),
         "agent_id": agent_id,
         "agent_type": agent_type,
-        "event": "completed",
     }
+    if agent_dir_prefix(agent_type) != agent_type:
+        entry["agent_dir"] = log_dir.name
+    entry["event"] = "completed"
     with open(summary_file, "a") as f:
         f.write(json.dumps(entry) + "\n")
 

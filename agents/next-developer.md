@@ -1,6 +1,6 @@
 ---
 name: next-developer
-description: Explore, plan, and implement Next.js / TypeScript code changes following team conventions
+description: ALL .ts/.tsx/.jsx edits in Next.js projects — detected by next.config.ts/.mjs, or "next" in package.json dependencies. TypeScript outside a Next.js project is handled directly and must NOT be routed here.
 skills:
   - next-conventions
 permissionMode: bypassPermissions

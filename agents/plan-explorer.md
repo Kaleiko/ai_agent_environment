@@ -1,6 +1,6 @@
 ---
 name: plan-explorer
-description: Explores a single codebase and produces a planning spec for a cross-codebase feature
+description: Explores a single codebase and produces a planning spec for a cross-codebase feature. Spawned by /complex-plan, one per codebase, in parallel. Read-only.
 permissionMode: default
 ---
 

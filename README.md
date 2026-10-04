@@ -24,13 +24,14 @@ A centralized repository for Claude Code skills, agents, hooks, and prompts. Eve
 ├── agents/
 │   ├── python-developer.md
 │   ├── next-developer.md
+│   ├── e2e-developer.md
 │   ├── plan-explorer.md
 │   ├── plan-critic.md
 │   └── plan-synthesizer.md
 ├── commands/
 │   └── complex-plan.md
-└── skills/
-    └── ai-interaction/    # Communication guidelines
+└── skills/                # Only skills marked `scope: global`
+    └── ai-interaction/
         └── SKILL.md
 
 $AI_AGENT_ENV_PATH/ (Repo — source of truth)
@@ -46,7 +47,7 @@ $AI_AGENT_ENV_PATH/ (Repo — source of truth)
 │   ├── subagent_start.py
 │   ├── session_stop.py
 │   └── session_start.py
-├── skills/                # Convention files (read by subagent_start hook)
+├── skills/                # All skills; `scope:` frontmatter decides global vs injected
 ├── agents/                # Agent definitions (source of truth)
 ├── commands/              # Slash command prompts (copied to ~/.claude/commands/)
 └── prompts/
@@ -73,7 +74,7 @@ source ~/.zshrc  # or ~/.bashrc
 Then restart Claude Code. That's it — no per-project setup needed.
 
 The install script:
-1. Copies `ai-interaction` skill to `~/.claude/skills/`
+1. Copies skills marked `scope: global` to `~/.claude/skills/`
 2. Copies `delegation.md` to `~/.claude/rules/`
 3. Copies agent definitions to `~/.claude/agents/`
 4. Copies commands to `~/.claude/commands/`
@@ -140,23 +141,54 @@ The command runs a 7-phase pipeline:
 
 ## Skills
 
-| Skill | Purpose | Location |
+| Skill | Purpose | `scope:` |
 |-------|---------|----------|
-| `ai-interaction` | Communication standards, code review process | Global (`~/.claude/skills/`) |
-| `python-conventions` | Code style, error handling, logging, testing, pipeline architecture, README & ARCHITECTURE.md maintenance | Repo (`skills/`), injected by hook |
-| `next-conventions` | Next.js/TypeScript conventions | Repo (`skills/`), injected by hook |
+| `ai-interaction` | Communication standards, code review process | `global` — installed to `~/.claude/skills/`, in every session's registry |
+| `self-improvement` | Diagnose and durably fix the cause when the user corrects you | `global` |
+| `python-conventions` | Code style, error handling, logging, testing, pipeline architecture, README & ARCHITECTURE.md maintenance | `injected` — stays in repo, injected into matching agents |
+| `next-conventions` | Next.js/TypeScript conventions | `injected` |
+| `playwright-conventions` | Mandatory conventions for Playwright E2E tests in Python | `injected` |
+
+### Adding a new skill
+
+A skill's own frontmatter decides how it loads. There is no list to keep in sync.
+
+```yaml
+---
+name: my-skill
+scope: global      # or: injected  (omit entirely and it defaults to injected)
+description: "..."
+---
+```
+
+- **`scope: global`** — `install.sh` copies it to `~/.claude/skills/<name>/SKILL.md`. Its name and
+  description then sit in **every** session's registry, and the model may invoke it anywhere.
+  Use for discretionary capabilities you want available across all projects.
+- **`scope: injected`** (the default) — the file stays in `skills/`. It reaches an agent only when
+  that agent's definition names it under `skills:`, and the `subagent_start` hook injects the full
+  body at spawn. Costs nothing in sessions that never spawn the agent. Use for conventions that are
+  **mandatory** for a specific agent — injection is unconditional, whereas registration only makes a
+  skill available for the model to choose.
+
+Omitting `scope:` is deliberately the safe default: a new skill can never become globally registered
+by accident.
 
 ## Agents
 
-| Agent | Purpose |
-|-------|---------|
-| `python-developer` | Full workflow: understand, explore, plan, implement, verify, summarize |
-| `next-developer` | Same workflow for Next.js/TypeScript projects |
-| `plan-explorer` | Explores a single codebase and produces a planning spec (used by `/complex-plan`) |
-| `plan-critic` | Reviews all plans together, finds cross-codebase conflicts (used by `/complex-plan`) |
-| `plan-synthesizer` | Combines plans + critic feedback into a unified implementation spec (used by `/complex-plan`) |
+| Agent | Routed to when | Purpose |
+|-------|----------------|---------|
+| `python-developer` | `.py` edits, non-Playwright project | Full workflow: understand, explore, plan, implement, verify, document, summarize |
+| `e2e-developer` | `.py` edits, Playwright E2E repo (takes priority) | Same workflow for Playwright tests |
+| `next-developer` | `.ts`/`.tsx`/`.jsx` edits, Next.js project only | Same workflow for Next.js/TypeScript |
+| `plan-explorer` | Spawned by `/complex-plan`, one per codebase, in parallel | Explores a codebase, produces a planning spec (read-only) |
+| `plan-critic` | Spawned by `/complex-plan` after the explorers | Reviews all plans together, finds cross-codebase conflicts (read-only) |
+| `plan-synthesizer` | Spawned by `/complex-plan` once the critic approves | Combines plans + feedback into a unified spec (read-only) |
 
-Agents receive their convention skills automatically via the `subagent_start` hook.
+Agents receive their convention skills automatically via the `subagent_start` hook, based on the
+`skills:` list in each agent's frontmatter.
+
+Each agent's `description` field carries its full routing trigger — the Agent tool surfaces those
+descriptions to the model, so routing holds even independently of `delegation.md`.
 
 ## Hooks
 

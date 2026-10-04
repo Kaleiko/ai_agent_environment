@@ -1,6 +1,6 @@
 ---
 name: python-developer
-description: Explore, plan, and implement Python code changes following team conventions
+description: ALL Python (.py) edits in projects that are NOT Playwright E2E repos — every change regardless of size, including one-line fixes. Explores, plans, implements, and verifies following python-conventions.
 skills:
   - python-conventions
 permissionMode: bypassPermissions

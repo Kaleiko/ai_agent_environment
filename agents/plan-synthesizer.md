@@ -1,6 +1,6 @@
 ---
 name: plan-synthesizer
-description: Combines reviewed codebase plans and critic feedback into a unified implementation spec
+description: Combines reviewed codebase plans and critic feedback into a unified implementation spec. Spawned by /complex-plan only after the critic approves. Read-only.
 permissionMode: default
 ---
 

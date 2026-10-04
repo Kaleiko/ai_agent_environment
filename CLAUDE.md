@@ -4,7 +4,7 @@ This repository contains reusable skills, agents, hooks, and prompts for Claude 
 
 ## Architecture
 
-- **Global** (`~/.claude/`) — Hooks (in settings.json), delegation rules (in rules/), agents (in agents/), ai-interaction skill (in skills/)
+- **Global** (`~/.claude/`) — Hooks (in settings.json), delegation rules (in rules/), agents (in agents/), skills marked `scope: global` (in skills/)
 - **Repo** (`$AI_AGENT_ENV_PATH/`) — Source of truth for all hooks, skills, agents, and prompts
 - **Per-project** (`.claude/`) — Only logs (auto-created by hooks) and optional skill overrides
 

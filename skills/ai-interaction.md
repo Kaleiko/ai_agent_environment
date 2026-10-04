@@ -1,5 +1,6 @@
 ---
 name: ai-interaction
+scope: global
 description: "AI interaction: communication standards and code review process"
 globs: ["**/*"]
 ---

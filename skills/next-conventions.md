@@ -1,5 +1,6 @@
 ---
 name: next-conventions
+scope: injected
 description: "Next.js conventions: TypeScript, components, routing, data fetching, error handling, styling, testing, linting, project structure, code review"
 globs: ["**/*.ts", "**/*.tsx", "**/*.jsx"]
 ---

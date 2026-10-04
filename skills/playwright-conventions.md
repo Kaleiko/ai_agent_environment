@@ -1,5 +1,6 @@
 ---
 name: playwright-conventions
+scope: injected
 description: "Mandatory conventions for Playwright end-to-end tests in Python"
 globs: ["**/*.py"]
 ---

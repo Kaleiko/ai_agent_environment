@@ -1,6 +1,6 @@
 ---
 name: e2e-developer
-description: Explore, plan, and implement Playwright end-to-end tests following team conventions
+description: ALL Python (.py) edits in Playwright E2E repos — detected by playwright or pytest-playwright in pyproject.toml/requirements.txt, or a pages/ directory at the project root. Takes priority over python-developer in those repos.
 skills:
   - playwright-conventions
 permissionMode: bypassPermissions

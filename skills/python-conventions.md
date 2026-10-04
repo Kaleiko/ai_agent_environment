@@ -1,5 +1,6 @@
 ---
 name: python-conventions
+scope: injected
 description: "Python conventions: code style, error handling, logging, testing, project structure, code review, pipeline architecture, README maintenance, FastAPI"
 globs: ["**/*.py"]
 ---

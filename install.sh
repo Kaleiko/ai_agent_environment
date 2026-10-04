@@ -23,7 +23,7 @@
 #   wrong, nothing breaks.
 #
 # WHAT IT DOES:
-#   1. Installs ai-interaction skill to ~/.claude/skills/
+#   1. Installs skills marked "scope: global" to ~/.claude/skills/
 #   2. Copies delegation rules to ~/.claude/rules/
 #   3. Copies agent definitions to ~/.claude/agents/
 #   4. Copies commands to ~/.claude/commands/
@@ -85,12 +85,47 @@ render() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 1: Install global skill (ai-interaction only)
+# Step 1: Install skills marked "scope: global" in their frontmatter
 # ---------------------------------------------------------------------------
 
-mkdir -p "$SKILLS_DIR/ai-interaction"
-render "$REPO_DIR/skills/ai-interaction.md" "$SKILLS_DIR/ai-interaction/SKILL.md"
-echo "  Installed skill: ai-interaction"
+# A skill is installed globally only if its YAML frontmatter says so:
+#
+#     scope: global
+#
+# Everything else (scope: injected, or no scope key at all) stays in the repo
+# and reaches agents only via the SubagentStart hook, which reads the flat
+# skills/ directory. Defaulting to NOT global means a new skill can never
+# become globally registered by accident.
+#
+# frontmatter FILE — print only the YAML block between the leading '---' and
+# the next '---', so a 'scope:' mentioned in the skill body is never matched.
+
+frontmatter() {
+  awk '
+    NR == 1 { if ($0 != "---") exit; next }
+    /^---[[:space:]]*$/ { exit }
+    { print }
+  ' "$1"
+}
+
+installed_any=0
+for skill_file in "$REPO_DIR"/skills/*.md; do
+  [ -f "$skill_file" ] || continue
+
+  if ! frontmatter "$skill_file" | grep -qE '^scope:[[:space:]]*global[[:space:]]*$'; then
+    continue
+  fi
+
+  skill_name="$(basename "$skill_file" .md)"
+  mkdir -p "$SKILLS_DIR/$skill_name"
+  render "$skill_file" "$SKILLS_DIR/$skill_name/SKILL.md"
+  echo "  Installed global skill: $skill_name"
+  installed_any=1
+done
+
+if [ "$installed_any" -eq 0 ]; then
+  echo "  No skills marked 'scope: global' — none installed globally"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 2: Copy delegation rules to ~/.claude/rules/

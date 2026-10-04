@@ -1,6 +1,6 @@
 ---
 name: plan-critic
-description: Reviews multiple codebase plans together, finds cross-codebase conflicts and challenges assumptions
+description: Reviews multiple codebase plans together, finds cross-codebase conflicts and challenges assumptions. Spawned by /complex-plan after the explorers. Read-only.
 permissionMode: default
 ---
 
